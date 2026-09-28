@@ -215,7 +215,7 @@ var App = {
         prev: prev, loadError: "",
         sysInfo: { veMax: d.veMax, vjMax: d.vjMax, bizRows: d.bizRows, refRows: d.refRows, branchCount: Object.keys(d.branches || {}).length },
         veLast: d.veMax, vjLast: d.vjMax,
-        veStart: self.state.veStart || d.veMax + 1, vjStart: self.state.vjStart || d.vjMax + 1,
+        veStart: d.veMax + 1, vjStart: d.vjMax + 1,
       });
       if (self.state.records.length) self.checkDuplicates();
     }).catch(function (err) { self.set({ prev: null, sysInfo: null, loadError: "เชื่อมต่อฐานข้อมูลไม่สำเร็จ: " + err.message }); });
@@ -227,12 +227,12 @@ var App = {
     if (!s.prev || !s.records.length) return;
     var vals = { taxIds: [], empCodes: [], accounts: [] };
     s.records.forEach(function (r) {
-      var t = self.val(r, "taxId"), e = self.val(r, "empCode"), a = self.val(r, "account");
-      if (t) vals.taxIds.push(t); if (e) vals.empCodes.push(e); if (a) vals.accounts.push(a);
+      var t = self.val(r, "taxId"), a = self.val(r, "account");
+      if (t) vals.taxIds.push(t); if (a) vals.accounts.push(a);
     });
     this.set({ checking: true });
-    this.api("POST", { action: "check", taxIds: vals.taxIds, empCodes: vals.empCodes, accounts: vals.accounts }).then(function (d) {
-      var prev = Object.assign({}, self.state.prev, { taxIds: self.toMap(d.taxIds), empCodes: self.toMap(d.empCodes), accounts: self.toMap(d.accounts) });
+    this.api("POST", { action: "check", taxIds: vals.taxIds, accounts: vals.accounts }).then(function (d) {
+      var prev = Object.assign({}, self.state.prev, { taxIds: self.toMap(d.taxIds), empCodes: {}, accounts: self.toMap(d.accounts) });
       self.set({ prev: prev, checking: false });
     }).catch(function (err) { self.set({ checking: false, loadError: "ตรวจซ้ำกับระบบไม่สำเร็จ: " + err.message }); });
   },
@@ -551,7 +551,7 @@ var App = {
     var fixPoints = built.reduce(function (n, r) { return n + r.issues.filter(function (i) { return i.kind === "autofix"; }).length; }, 0);
     var canExport = built.length > 0 && counts.error === 0 && counts.warning === 0;
     var ready = s.records.length > 0 && !!s.prev && !s.checking;
-    var nextDisabled = s.screen === 0 ? !ready : s.screen === 2 ? !canExport : s.screen === 4;
+    var nextDisabled = s.screen === 0 ? !ready : s.screen === 2 ? !built.length : s.screen === 4;
     var screenNames = ["อัปโหลด", "กำหนดเลขรหัส", "ผลตรวจสอบ", "พรีวิว", "ส่งออก"];
 
     var html = "";
@@ -613,8 +613,19 @@ var App = {
     built.forEach(function (r) { if (r.status === "error") counts.error++; if (r.status === "warning") counts.warning++; });
     var canExport = built.length > 0 && counts.error === 0 && counts.warning === 0;
     var ready = this.state.records.length > 0 && !!this.state.prev && !this.state.checking;
-    var nextDisabled = this.state.screen === 0 ? !ready : this.state.screen === 2 ? !canExport : this.state.screen === 4;
-    if (!nextDisabled) this.set({ screen: this.state.screen + 1 });
+    var nextDisabled = this.state.screen === 0 ? !ready : this.state.screen === 2 ? !built.length : this.state.screen === 4;
+    if (nextDisabled) return;
+    if (this.state.screen === 2 && !canExport) {
+      var msg = "⚠ คำเตือน\n\nยังมี Error " + counts.error + " รายการ และ Warning " + counts.warning + " รายการที่ยังไม่ได้ยืนยัน\n\n" +
+        "ถ้าไปต่อ ข้อมูลเหล่านี้จะถูกส่งออกไปด้วย อาจทำให้สร้างรหัส BP ซ้ำใน SAP หรือนำเข้าไม่ผ่าน\n\n" +
+        "กรุณาตรวจสอบกับข้อมูลใน SAP ก่อนนำเข้า\n\nต้องการไปต่อหรือไม่?";
+      if (!window.confirm(msg)) return;
+    }
+    this.set({ screen: this.state.screen + 1 });
+  },
+  confirmExport: function () {
+    var n = 0; this.build().forEach(function (r) { if (r.status === "error" || r.status === "warning") n++; });
+    return !n || window.confirm("⚠ ไฟล์นี้มี " + n + " รายการที่ยังมี Error/Warning\nยืนยันจะส่งออกหรือไม่?");
   },
   openHistory: function () { this.set({ historyOpen: true }); this.refreshHistory(); },
 
@@ -644,10 +655,10 @@ var App = {
     var card = function (title, count, lastLabel, val, setter, rangeLabel) {
       return '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;"><div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:14px;font-weight:600;">' + title + '</div><div style="font-size:12px;padding:2px 10px;border-radius:9999px;background:#F2F2F2;color:#606060;">' + count + ' รายชื่อ</div></div>' +
       '<div style="display:flex;justify-content:space-between;font-size:13px;color:#606060;"><span>เลขล่าสุดในระบบ (Business Partner)</span><span style="font-family:Roboto;font-weight:600;color:#0F0F0F;">' + lastLabel + '</span></div>' +
-      '<div style="display:flex;flex-direction:column;gap:6px;"><label style="font-size:12px;color:#606060;">เลขเริ่มต้นชุดนี้</label><input type="number" style="height:40px;width:140px;border:1px solid #E5E5E5;border-radius:8px;padding:0 12px;font-size:14px;font-family:Roboto;font-weight:600;" value="' + val + '" onchange="' + setter + '"></div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:13px;color:#606060;"><span>เลขเริ่มต้นชุดนี้ (รันต่ออัตโนมัติ)</span><span style="font-family:Roboto;font-weight:600;color:#0F0F0F;">' + (val ? lastLabel.slice(0, 2) + String(val).padStart(5, "0") : "—") + '</span></div>' +
       '<div style="height:1px;background:#E5E5E5;"></div><div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:#606060;">ช่วงเลขที่จะใช้</span><span style="font-family:Roboto;font-weight:700;color:#065FD4;">' + rangeLabel + '</span></div></div>';
     };
-    var html = '<div style="display:flex;flex-direction:column;gap:24px;"><div><div style="font-size:22px;font-weight:700;">2. กำหนดเลขรหัส</div><div style="font-size:14px;color:#606060;margin-top:4px;">อ่านเลขล่าสุดจากไฟล์เดือนก่อน แก้เลขเริ่มต้นได้หากมีการสร้างรหัสใน SAP เพิ่มระหว่างเดือน</div></div>';
+    var html = '<div style="display:flex;flex-direction:column;gap:24px;"><div><div style="font-size:22px;font-weight:700;">2. กำหนดเลขรหัส</div><div style="font-size:14px;color:#606060;margin-top:4px;">ระบบอ่านเลขล่าสุดจากชีต BusinessPartner แล้วรันต่อให้อัตโนมัติ — หากมีการสร้างรหัสใน SAP เพิ่ม ให้นำเข้าฐานข้อมูลใหม่ก่อน (⚙ ตั้งค่า)</div></div>';
     html += '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;">';
     html += card("Full Time → VE", built.filter(function(r){return r.rec.type==="FT";}).length, s.veLast != null ? "VE" + String(s.veLast).padStart(5, "0") : "—", s.veStart || "", "App.set({veStart:parseInt(this.value)||" + (s.veStart||0) + "})", range(ve));
     html += card("Part Time → VJ", built.filter(function(r){return r.rec.type==="PT";}).length, s.vjLast != null ? "VJ" + String(s.vjLast).padStart(5, "0") : "—", s.vjStart || "", "App.set({vjStart:parseInt(this.value)||" + (s.vjStart||0) + "})", range(vj));
@@ -743,14 +754,16 @@ var App = {
     var vj = built.filter(function (r) { return r.code.indexOf("VJ") === 0; });
     function range(rows) { return rows.length ? rows[0].code + " – " + rows[rows.length - 1].code : "—"; }
     var html = '<div style="display:flex;flex-direction:column;gap:24px;max-width:760px;margin:0 auto;">';
-    html += '<div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;"><div style="width:56px;height:56px;border-radius:9999px;background:#E3F5E7;display:flex;align-items:center;justify-content:center;color:#1E7B34;font-size:26px;">✓</div><div style="font-size:22px;font-weight:700;">พร้อมส่งออก</div>';
+    var hasIssue = counts.error > 0 || counts.warning > 0;
+    html += '<div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;"><div style="width:56px;height:56px;border-radius:9999px;background:' + (hasIssue ? '#FDE8EA' : '#E3F5E7') + ';display:flex;align-items:center;justify-content:center;color:' + (hasIssue ? '#C41230' : '#1E7B34') + ';font-size:26px;">' + (hasIssue ? '!' : '✓') + '</div><div style="font-size:22px;font-weight:700;">' + (hasIssue ? 'ส่งออกได้ แต่ยังมีรายการที่ต้องตรวจ' : 'พร้อมส่งออก') + '</div>';
+    if (hasIssue) html += '<div style="background:#FDE8EA;border:1px solid #F3C2C9;color:#C41230;border-radius:12px;padding:12px 16px;font-size:13px;text-align:left;max-width:640px;">มี Error ' + counts.error + ' รายการ · Warning ' + counts.warning + ' รายการ ที่จะถูกส่งออกไปด้วย — ตรวจสอบกับ SAP ก่อนนำเข้า เพื่อไม่ให้สร้างรหัส BP ซ้ำ</div>';
     html += '<div style="font-size:14px;color:#606060;">Error ' + counts.error + ' · Warning ' + counts.warning + ' · ผ่าน ' + counts.pass + '</div></div>';
     html += '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;">';
     html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:20px;text-align:center;"><div style="font-family:Roboto;font-size:28px;font-weight:700;color:#065FD4;">' + ve.length + '</div><div style="font-size:13px;color:#606060;margin-top:2px;">รายการ VE · ' + range(ve) + '</div></div>';
     html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:20px;text-align:center;"><div style="font-family:Roboto;font-size:28px;font-weight:700;color:#065FD4;">' + vj.length + '</div><div style="font-size:13px;color:#606060;margin-top:2px;">รายการ VJ · ' + range(vj) + '</div></div></div>';
     html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;">';
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;"><div><div style="font-size:14px;font-weight:600;">VE ' + s.month + ' ' + s.year + '.xlsx</div><div style="font-size:12px;color:#606060;">สร้างไฟล์ใหม่ตามฟอร์แมตคอลัมน์ SAP DTW (Master/Bank/Address)</div></div><button style="height:40px;padding:0 20px;border-radius:9999px;background:#0F0F0F;color:#fff;border:none;font-size:14px;font-weight:500;white-space:nowrap;" onclick="App.exportVe(App.build())">ดาวน์โหลด</button></div>';
-    html += '<div style="height:1px;background:#E5E5E5;"></div><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;"><div><div style="font-size:14px;font-weight:600;">Unicode text แยกชีท (.txt)</div><div style="font-size:12px;color:#606060;">Master, Bank, Address · UTF-16LE คั่นด้วยแท็บ ไม่มีเครื่องหมาย "</div></div><button style="height:40px;padding:0 20px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:14px;font-weight:500;white-space:nowrap;" onclick="App.exportText(App.build())">ดาวน์โหลด 3 ไฟล์</button></div>';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;"><div><div style="font-size:14px;font-weight:600;">VE ' + s.month + ' ' + s.year + '.xlsx</div><div style="font-size:12px;color:#606060;">สร้างไฟล์ใหม่ตามฟอร์แมตคอลัมน์ SAP DTW (Master/Bank/Address)</div></div><button style="height:40px;padding:0 20px;border-radius:9999px;background:#0F0F0F;color:#fff;border:none;font-size:14px;font-weight:500;white-space:nowrap;" onclick="App.confirmExport() && App.exportVe(App.build())">ดาวน์โหลด</button></div>';
+    html += '<div style="height:1px;background:#E5E5E5;"></div><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;"><div><div style="font-size:14px;font-weight:600;">Unicode text แยกชีท (.txt)</div><div style="font-size:12px;color:#606060;">Master, Bank, Address · UTF-16LE คั่นด้วยแท็บ ไม่มีเครื่องหมาย "</div></div><button style="height:40px;padding:0 20px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:14px;font-weight:500;white-space:nowrap;" onclick="App.confirmExport() && App.exportText(App.build())">ดาวน์โหลด 3 ไฟล์</button></div>';
     html += '<div style="height:1px;background:#E5E5E5;"></div><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;"><div><div style="font-size:14px;font-weight:600;">Change Log — ' + s.month + ' ' + s.year + '</div><div style="font-size:12px;color:#606060;">บันทึกค่าที่ต่างจากไฟล์ Employee, Auto-fix และการยืนยัน Warning</div></div><button style="height:40px;padding:0 20px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:14px;font-weight:500;white-space:nowrap;" onclick="App.exportLog(App.build())">ดาวน์โหลด</button></div>';
     html += '</div>';
     if (s.exportMessage) html += '<div style="font-size:13px;color:#606060;text-align:center;">' + esc(s.exportMessage) + '</div>';
@@ -847,7 +860,7 @@ var App = {
     this.state.scriptUrl = url; this.state.accessKey = key;
     localStorage.setItem("veGenScriptUrl", url); localStorage.setItem("veGenAccessKey", key);
     var plans = [
-      ["bp", files.bp, ["BP Code", "Old Code", "BP Name", "Federal Tax ID"], "BP Code"],
+      ["bp", files.bp, ["BP Code", "Old Code", "BP Name", "Federal Tax ID", "Bank Account"], "BP Code", { "Bank Account": ["Bank Account", "AccountNo", "Account No", "Account No.", "Bank Account No", "Bank Account No."] }],
       ["emp", files.emp, ["Employee Code", "First Name", "Last Name", "TaxID", "Bank Code", "Bank Account", "Bank Branch", "AccountName", "BIC/SWIFT Code", "IBAN", "Street", "Block", "City", "Zip Code"], "Employee Code"],
     ].filter(function (p) { return p[1]; });
     var norm = function (v) { return cleanText(v).toLowerCase().replace(/[\s_\-\/().]/g, ""); };
@@ -866,7 +879,11 @@ var App = {
         });
         if (!rows) throw new Error(p[1].name + ": ไม่พบคอลัมน์ " + p[3]);
         var head = rows[0].map(norm);
-        var idx = p[2].map(function (h) { return head.indexOf(norm(h)); });
+        var idx = p[2].map(function (h) {
+          var names = (p[4] && p[4][h]) || [h];
+          for (var q = 0; q < names.length; q++) { var c = head.indexOf(norm(names[q])); if (c > -1) return c; }
+          return -1;
+        });
         var out = [p[2]];
         rows.slice(1).forEach(function (r) {
           if (!cleanText(r[idx[0]])) return;
