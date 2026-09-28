@@ -232,7 +232,7 @@ var App = {
     });
     this.set({ checking: true });
     this.api("POST", { action: "check", taxIds: vals.taxIds, accounts: vals.accounts }).then(function (d) {
-      var prev = Object.assign({}, self.state.prev, { taxIds: self.toMap(d.taxIds), empCodes: {}, accounts: self.toMap(d.accounts) });
+      var prev = Object.assign({}, self.state.prev, { taxIds: self.toMap(d.taxIds), empCodes: {}, accounts: self.toMap(d.accounts), taxDetail: d.taxDetail || {} });
       self.set({ prev: prev, checking: false });
     }).catch(function (err) { self.set({ checking: false, loadError: "ตรวจซ้ำกับระบบไม่สำเร็จ: " + err.message }); });
   },
@@ -316,7 +316,16 @@ var App = {
         if (v && seen[k][v] > 1) add("error", "dup-" + k, label + " ซ้ำภายในชุดนี้", "พบ " + seen[k][v] + " รายการที่ใช้ค่าเดียวกัน");
         if (v && prev) {
           var set = k === "taxId" ? prev.taxIds : k === "empCode" ? prev.empCodes : prev.accounts;
-          if (set[v]) add("error", "dupprev-" + k, label + " ซ้ำกับข้อมูลในระบบ SAP", "พบใน Business Partner Master Data แล้ว — อาจมีรหัส BP อยู่แล้ว");
+          if (set[v]) {
+            var det = k === "taxId" && prev.taxDetail ? prev.taxDetail[v] : null;
+            var msg = "พบใน Business Partner Master Data แล้ว — อาจมีรหัส BP อยู่แล้ว";
+            if (det) {
+              var bpTxt = (det.bp || []).map(function (b) { return b.code + (b.name ? " " + b.name : "") + (b.oldCode ? " (Old Code " + b.oldCode + ")" : ""); }).join(", ");
+              var empTxt = (det.emp || []).map(function (e) { return e.code + (e.name ? " " + e.name : ""); }).join(", ");
+              msg = "ซ้ำกับ " + (bpTxt || "—") + " · รหัสพนักงานในชีต Employee: " + (empTxt || "ไม่พบ");
+            }
+            add("error", "dupprev-" + k, label + " ซ้ำกับข้อมูลในระบบ SAP", msg);
+          }
         }
       });
 
