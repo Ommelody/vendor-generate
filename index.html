@@ -117,14 +117,21 @@ var App = {
     file.arrayBuffer().then(function (buf) {
       try {
         var wb = XLSX.read(buf, { type: "array", cellStyles: true });
-        var records = [];
-        [["Full Time", "FT"], ["Part Time", "PT"]].forEach(function (pair) {
-          var sheet = pair[0], type = pair[1];
+        var records = [], found = [];
+        var norm = function (v) { return cleanText(v).toLowerCase().replace(/[\s_\-\/().]/g, ""); };
+        [[/^(fulltime|ft|พนักงานประจำ|ประจำ)/, "FT"], [/^(parttime|pt|พนักงานพาร์ทไทม์|พาร์ทไทม์|รายวัน)/, "PT"]].forEach(function (pair) {
+          var type = pair[1];
+          var sheet = wb.SheetNames.filter(function (n) { return pair[0].test(norm(n)); })[0];
+          if (!sheet) return;
+          found.push(sheet);
           var ws = wb.Sheets[sheet];
-          if (!ws) return;
           var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "", blankrows: false });
-          var head = (rows[0] || []).map(function (h) { return cleanText(h); });
-          function idx(name) { return head.indexOf(name); }
+          var hr = 0;
+          for (var k = 0; k < Math.min(rows.length, 10); k++) { if ((rows[k] || []).some(function (h) { return norm(h) === "employeecode"; })) { hr = k; break; } }
+          if (hr) rows = rows.slice(hr);
+          var head = (rows[0] || []).map(norm);
+          function idx(name) { return head.indexOf(norm(name)); }
+          if (idx("Employee Code") < 0) { found.push("(ชีต " + sheet + " ไม่พบคอลัมน์ Employee Code)"); return; }
           var cols = {
             startDate: idx("Start Date"), empCode: idx("Employee Code"), first: idx("First Name"), last: idx("Last Name"),
             dob: idx("Date of Birth"), marital: idx("MaritalStatus"), mobile: idx("Mobile Phone"),
@@ -167,6 +174,10 @@ var App = {
             });
           }
         });
+        if (!records.length) {
+          self.set({ records: [], employeeName: file.name, loadError: "อ่านไฟล์ได้ แต่ไม่พบรายชื่อพนักงาน — ชีตในไฟล์: " + wb.SheetNames.join(", ") + (found.length ? " · " + found.join(" ") : " · ต้องมีชีตชื่อ Full Time / Part Time") + " · แถวหัวต้องมีคอลัมน์ Employee Code" });
+          return;
+        }
         var first = null;
         for (var i = 0; i < records.length; i++) { var d = parseDateTh(records[i].startDate); if (d) { first = d; break; } }
         self.set({
@@ -514,7 +525,7 @@ var App = {
     var key = ((document.getElementById("accessKeyInput") || {}).value || "").trim();
     if (!url || !key) { alert("กรุณาวาง Web app URL และ Access key ก่อน"); return; }
     fetch(url + "?action=ping&key=" + encodeURIComponent(key)).then(function (r) { return r.json(); }).then(function (d) {
-      alert(d.ok ? "เชื่อมต่อสำเร็จ ✓\nBusinessPartner " + d.bizRows + " แถว · EmployeeMaster " + d.refRows + " แถว" : "เชื่อมต่อไม่สำเร็จ: " + d.error);
+      alert(d.ok ? "เชื่อมต่อสำเร็จ ✓\nBusinessPartner " + d.bizRows + " แถว (ล่าสุด VE" + String(d.veMax || 0).padStart(5, "0") + " / VJ" + String(d.vjMax || 0).padStart(5, "0") + ")\nEmployeeMaster " + d.refRows + " แถว" + (d.bizRows ? "" : "\n\n⚠ ชีต BusinessPartner ยังไม่มีข้อมูล — วางข้อมูลที่ A1 รวมหัวคอลัมน์") : "เชื่อมต่อไม่สำเร็จ: " + d.error);
     }).catch(function (err) { alert("เชื่อมต่อไม่สำเร็จ: " + err.message); });
   },
 
@@ -818,8 +829,56 @@ var App = {
     html += '<div style="display:flex;flex-direction:column;gap:6px;"><label style="font-size:12px;color:#606060;">Web app URL</label><input id="scriptUrlInput" type="text" placeholder="https://script.google.com/macros/s/xxxxx/exec" value="' + esc(s.scriptUrl) + '" style="' + inp + '"></div>';
     html += '<div style="display:flex;flex-direction:column;gap:6px;"><label style="font-size:12px;color:#606060;">Access key</label><input id="accessKeyInput" type="password" placeholder="ได้จาก Execution log หลังรัน setup" value="' + esc(s.accessKey) + '" style="' + inp + '"></div>';
     html += '<div style="display:flex;gap:10px;"><button style="height:40px;padding:0 18px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:13px;font-weight:500;white-space:nowrap;" onclick="App.testConnection()">ทดสอบการเชื่อมต่อ</button><button style="height:40px;padding:0 18px;border-radius:9999px;background:#0F0F0F;color:#fff;border:none;font-size:13px;font-weight:500;white-space:nowrap;" onclick="App.saveSettings(document.getElementById(\'scriptUrlInput\').value, document.getElementById(\'accessKeyInput\').value)">บันทึก</button></div>';
+    html += '<div style="border-top:1px solid #E5E5E5;margin-top:6px;padding-top:16px;display:flex;flex-direction:column;gap:10px;"><div style="font-size:15px;font-weight:700;">อัปเดตฐานข้อมูลใน Google Sheet</div><div style="font-size:12px;color:#606060;">เลือกไฟล์จาก SAP แล้วกดนำเข้า ระบบจะเขียนทับชีต BusinessPartner / EmployeeMaster และเก็บเฉพาะคอลัมน์ที่ใช้ตรวจสอบ (ไม่เก็บเงินเดือนหรือข้อมูลครอบครัว)</div>';
+    html += '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#606060;">Business Partner Master Data (Vendor).xlsx<input type="file" accept=".xlsx" onchange="App._dbFiles.bp=this.files[0]" style="font-size:13px;"></label>';
+    html += '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#606060;">ข้อมูลพนักงานทั้งบริษัท (Employee).xlsx<input type="file" accept=".xlsx" onchange="App._dbFiles.emp=this.files[0]" style="font-size:13px;"></label>';
+    html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><button style="height:40px;padding:0 18px;border-radius:9999px;background:#0F0F0F;color:#fff;border:none;font-size:13px;font-weight:500;white-space:nowrap;"' + (s.dbImporting ? ' disabled' : '') + ' onclick="App.importDb()">' + (s.dbImporting ? 'กำลังนำเข้า…' : 'นำเข้าฐานข้อมูล') + '</button>' + (s.dbImportMsg ? '<div style="font-size:12px;color:' + (/ไม่สำเร็จ|กรุณา/.test(s.dbImportMsg) ? '#C41230' : '#1E7B34') + ';">' + esc(s.dbImportMsg) + '</div>' : '') + '</div></div>';
     html += '</div></div>';
     return html;
+  },
+
+  _dbFiles: {},
+  importDb: function () {
+    var self = this, files = this._dbFiles;
+    if (!files.bp && !files.emp) { this.set({ dbImportMsg: "กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์" }); return; }
+    var url = ((document.getElementById("scriptUrlInput") || {}).value || this.state.scriptUrl).trim();
+    var key = ((document.getElementById("accessKeyInput") || {}).value || this.state.accessKey).trim();
+    if (!url || !key) { this.set({ dbImportMsg: "กรุณาวาง Web app URL และ Access key ก่อน" }); return; }
+    this.state.scriptUrl = url; this.state.accessKey = key;
+    localStorage.setItem("veGenScriptUrl", url); localStorage.setItem("veGenAccessKey", key);
+    var plans = [
+      ["bp", files.bp, ["BP Code", "Old Code", "BP Name", "Federal Tax ID"], "BP Code"],
+      ["emp", files.emp, ["Employee Code", "First Name", "Last Name", "TaxID", "Bank Code", "Bank Account", "Bank Branch", "AccountName", "BIC/SWIFT Code", "IBAN", "Street", "Block", "City", "Zip Code"], "Employee Code"],
+    ].filter(function (p) { return p[1]; });
+    var norm = function (v) { return cleanText(v).toLowerCase().replace(/[\s_\-\/().]/g, ""); };
+    this.set({ dbImporting: true, dbImportMsg: "" });
+    var done = [];
+    plans.reduce(function (chain, p) {
+      return chain.then(function () { return p[1].arrayBuffer(); }).then(function (buf) {
+        var wb = XLSX.read(buf, { type: "array" });
+        var rows = null;
+        wb.SheetNames.some(function (n) {
+          var all = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: "", blankrows: false });
+          for (var k = 0; k < Math.min(all.length, 10); k++) {
+            if ((all[k] || []).map(norm).indexOf(norm(p[3])) > -1) { rows = all.slice(k); return true; }
+          }
+          return false;
+        });
+        if (!rows) throw new Error(p[1].name + ": ไม่พบคอลัมน์ " + p[3]);
+        var head = rows[0].map(norm);
+        var idx = p[2].map(function (h) { return head.indexOf(norm(h)); });
+        var out = [p[2]];
+        rows.slice(1).forEach(function (r) {
+          if (!cleanText(r[idx[0]])) return;
+          out.push(idx.map(function (c) { return c < 0 ? "" : String(r[c] == null ? "" : r[c]).trim(); }));
+        });
+        return self.api("POST", { action: "import", sheet: p[0], rows: out }).then(function (d) { done.push((p[0] === "bp" ? "BusinessPartner " : "EmployeeMaster ") + d.count + " แถว"); });
+      });
+    }, Promise.resolve()).then(function () {
+      self._dbFiles = {};
+      self.set({ dbImporting: false, dbImportMsg: "นำเข้าสำเร็จ ✓ " + done.join(" · ") });
+      self.initSystem();
+    }).catch(function (err) { self.set({ dbImporting: false, dbImportMsg: "นำเข้าไม่สำเร็จ: " + err.message }); });
   },
 
   _wireUploads: function () {
