@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ระบบสร้างไฟล์นำเข้า SAP (VE/VJ)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  body { margin: 0; background: #F7F7F8; font-family: 'Noto Sans Thai','Roboto',sans-serif; color: #0F0F0F; }
+  * { box-sizing: border-box; font-variant-numeric: tabular-nums; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #D8D8D8; border-radius: 8px; }
+  input, textarea, select, button { font-family: inherit; }
+  button { cursor: pointer; }
+  a { color: #065FD4; }
+  a:hover { color: #0A4FB0; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  #app { animation: fadeIn .2s ease; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+/* ============ ค่าคงที่ / helper เดียวกับต้นแบบ (VE Generator v2.dc.html) ============ */
+var MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+var PREFIXES = ["นางสาว", "นาง", "นาย"];
+var BRANCH_DICT = { "อุสาหกรรม": "อุตสาหกรรม", "บางกระดี": "บางกะดี", "ฟิวเจอร์ปาร์ค": "ฟิวเจอร์พาร์ค" };
+var ZIP_FIX = { "60780": "60180" };
+var FIELD_LABELS = {
+  firstName: "First Name", lastName: "Last Name", taxId: "TaxID (FederalTaxID)", mobile: "Phone1",
+  account: "AccountNo", branch: "Branch", iban: "IBAN (รหัสสาขา)", accountName: "AccountName", bic: "BICSwiftCode",
+  bankFee: "UserNo2 (Bank Fee)", bStreet: "Bank Street", bBlock: "Bank Block", bCity: "Bank City", bZip: "Bank ZipCode",
+  homeBuilding: "StreetNo", homeStreet: "Street (ต./แขวง)", homeBlock: "Block (อ./เขต)", homeCity: "City (จังหวัด)",
+  homeZip: "ZipCode (รหัสไปรษณีย์)", dob: "Date of Birth", empCode: "U_NTT_OldCode",
+};
+function fieldLabel(k) { return FIELD_LABELS[k] || k; }
+var MASTER_HEADERS = ["CardCode","U_NTT_OldCode","CardName","U_ISS_BpTaxTitle","U_ISS_BpTaxName1","U_ISS_BpTaxName2","CardType","GroupCode","FederalTaxID","Phone1","ShippingType","CompanyPrivate","PayTermsGrpCode","PriceListNum","PriceMode","DebitorAccount","DownPaymentClearAct","VatGroup","SubjectToWithholdingTax","TypeReport","U_NTT_Interface","EndorsableChecksFromBP"];
+var BANK_HEADERS = ["ParentKey","BankCode","Branch","Country","AccountNo","AccountName","IBAN","BICSwiftCode","ControlKey","MandateID","UserNo1","UserNo2","Street","Block","City","ZipCode"];
+var ADDRESS_HEADERS = ["ParentKey","AddressType","AddressName","StreetNo","Street","Block","City","Country","ZipCode"];
+var ZIP_BY_PROVINCE = {
+  "กรุงเทพมหานคร":["10"],"สมุทรปราการ":["10"],"นนทบุรี":["11"],"ปทุมธานี":["12"],"พระนครศรีอยุธยา":["13"],"อ่างทอง":["14"],
+  "ลพบุรี":["15"],"สิงห์บุรี":["16"],"ชัยนาท":["17"],"สระบุรี":["18"],"ชลบุรี":["20"],"ระยอง":["21"],"จันทบุรี":["22"],"ตราด":["23"],
+  "ฉะเชิงเทรา":["24"],"ปราจีนบุรี":["25"],"นครนายก":["26"],"สระแก้ว":["27"],"นครราชสีมา":["30"],"บุรีรัมย์":["31"],"สุรินทร์":["32"],
+  "ศรีสะเกษ":["33"],"อุบลราชธานี":["34"],"ยโสธร":["35"],"ชัยภูมิ":["36"],"อำนาจเจริญ":["37"],"บึงกาฬ":["38"],"หนองบัวลำภู":["39"],
+  "หนองบัวลำพู":["39"],"ขอนแก่น":["40"],"อุดรธานี":["41"],"เลย":["42"],"หนองคาย":["43"],"มหาสารคาม":["44"],"ร้อยเอ็ด":["45"],
+  "กาฬสินธุ์":["46"],"สกลนคร":["47"],"นครพนม":["48"],"มุกดาหาร":["49"],"เชียงใหม่":["50"],"ลำพูน":["51"],"ลำปาง":["52"],
+  "อุตรดิตถ์":["53"],"แพร่":["54"],"น่าน":["55"],"พะเยา":["56"],"เชียงราย":["57"],"แม่ฮ่องสอน":["58"],"นครสวรรค์":["60"],
+  "อุทัยธานี":["61"],"กำแพงเพชร":["62"],"ตาก":["63"],"สุโขทัย":["64"],"พิษณุโลก":["65"],"พิจิตร":["66"],"เพชรบูรณ์":["67"],
+  "ราชบุรี":["70"],"กาญจนบุรี":["71"],"สุพรรณบุรี":["72"],"นครปฐม":["73"],"สมุทรสาคร":["74"],"สมุทรสงคราม":["75"],"เพชรบุรี":["76"],
+  "ประจวบคีรีขันธ์":["77"],"นครศรีธรรมราช":["80"],"กระบี่":["81"],"พังงา":["82"],"ภูเก็ต":["83"],"สุราษฎร์ธานี":["84"],"ระนอง":["85"],
+  "ชุมพร":["86"],"สงขลา":["90"],"สตูล":["91"],"ตรัง":["92"],"พัทลุง":["93"],"ปัตตานี":["94"],"ยะลา":["95"],"นราธิวาส":["96"]
+};
+function cleanText(v) {
+  if (v === null || v === undefined) return "";
+  var s = String(v);
+  s = s.replace(/[\u200b\u200c\u200d\ufeff]/g, "").replace(/\u00a0/g, " ");
+  s = s.replace(/\u0e4d\u0e32/g, "\u0e33");
+  s = s.replace(/^\s+|\s+$/g, "").replace(/,+$/, "");
+  return s;
+}
+function digits(v) { return String(v || "").replace(/\D/g, ""); }
+function taxIdValid(id) {
+  if (!/^\d{13}$/.test(id)) return false;
+  var sum = 0;
+  for (var i = 0; i < 12; i++) sum += parseInt(id[i]) * (13 - i);
+  return ((11 - (sum % 11)) % 10) === parseInt(id[12]);
+}
+function stripPrefix(name) {
+  var n = cleanText(name);
+  for (var i = 0; i < PREFIXES.length; i++) { var p = PREFIXES[i]; if (n.indexOf(p) === 0) return { prefix: p, rest: n.slice(p.length).trim() }; }
+  return { prefix: "", rest: n };
+}
+function parseDateTh(v) {
+  var m = /^(\d{2})\.(\d{2})\.(\d{2})$/.exec(String(v || "").trim());
+  if (!m) return null;
+  var yy = parseInt(m[3]);
+  return { day: parseInt(m[1]), month: parseInt(m[2]), year: yy > 40 ? 1900 + yy : 2000 + yy };
+}
+function bare(s) { return cleanText(s).replace(/^(ต\.|อ\.|จ\.|ตำบล|อำเภอ|จังหวัด|แขวง|เขต)\s*/, "").trim(); }
+function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function colLetter(n) { var s = ""; n += 1; while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
+
+/* ============ App ============ */
+var App = {
+  state: {
+    screen: 0, month: MONTHS[new Date().getMonth()], year: new Date().getFullYear() + 543,
+    employeeName: "", loadError: "",
+    records: [], prev: null, sysInfo: null,
+    veStart: null, vjStart: null, veLast: null, vjLast: null,
+    filter: "all", mask: true,
+    selectedId: null, previewTab: "master",
+    edits: {}, confirmed: {}, excluded: {}, exportMessage: "",
+    history: [], historyOpen: false, settingsOpen: false,
+    scriptUrl: localStorage.getItem("veGenScriptUrl") || "",
+    accessKey: localStorage.getItem("veGenAccessKey") || "",
+    checking: false,
+  },
+
+  set: function (patch) { Object.assign(this.state, patch); this.render(); },
+  val: function (rec, field) { var e = this.state.edits[rec.id]; return e && e[field] !== undefined ? e[field] : rec[field]; },
+  setField: function (id, field, value) {
+    var edits = Object.assign({}, this.state.edits);
+    edits[id] = Object.assign({}, edits[id] || {});
+    edits[id][field] = value;
+    this.set({ edits: edits });
+    if (["taxId", "empCode", "account"].indexOf(field) > -1) this.checkDuplicates();
+  },
+
+  /* ---- อ่านไฟล์ Employee ---- */
+  onEmployeeFile: function (fileList) {
+    var file = fileList && fileList[0];
+    if (!file) return;
+    var self = this;
+    file.arrayBuffer().then(function (buf) {
+      try {
+        var wb = XLSX.read(buf, { type: "array", cellStyles: true });
+        var records = [];
+        [["Full Time", "FT"], ["Part Time", "PT"]].forEach(function (pair) {
+          var sheet = pair[0], type = pair[1];
+          var ws = wb.Sheets[sheet];
+          if (!ws) return;
+          var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "", blankrows: false });
+          var head = (rows[0] || []).map(function (h) { return cleanText(h); });
+          function idx(name) { return head.indexOf(name); }
+          var cols = {
+            startDate: idx("Start Date"), empCode: idx("Employee Code"), first: idx("First Name"), last: idx("Last Name"),
+            dob: idx("Date of Birth"), marital: idx("MaritalStatus"), mobile: idx("Mobile Phone"),
+            homeBuilding: idx("Home Building/Floor/Room"), homeStreet: idx("Home Street"), homeBlock: idx("Home Block"),
+            homeCity: idx("Home City"), homeZip: idx("Home Zip Code"), taxId: idx("TaxID"), bankCode: idx("Bank Code"),
+            account: idx("Bank Account"), branch: idx("Bank Branch"), accountName: idx("AccountName"),
+            bankFee: idx("Bank Fee"), bic: idx("BIC/SWIFT Code"), iban: idx("IBAN"),
+            bStreet: idx("Street"), bBlock: idx("Block"), bCity: idx("City"), bZip: idx("Zip Code"),
+          };
+          for (var r = 1; r < rows.length; r++) {
+            var row = rows[r];
+            var empCode = cleanText(row[cols.empCode]);
+            if (!empCode || /^\*/.test(empCode)) continue;
+            var highlighted = false;
+            try {
+              var addr = XLSX.utils.encode_cell({ c: cols.empCode, r: r });
+              var st = ws[addr] && ws[addr].s;
+              var fg = st && (st.fgColor || (st.fill && st.fill.fgColor));
+              if (fg && fg.rgb && !/^FF{0,2}FFFFFF$/i.test(fg.rgb) && fg.rgb !== "FFFFFF") highlighted = true;
+            } catch (e2) { highlighted = false; }
+            records.push({
+              id: type + "-" + empCode, type: type, sheetRow: r + 1, highlighted: highlighted,
+              startDate: cleanText(row[cols.startDate]), empCode: empCode,
+              firstName: cleanText(row[cols.first]), lastName: cleanText(row[cols.last]),
+              dob: cleanText(row[cols.dob]), marital: cleanText(row[cols.marital]),
+              mobile: cleanText(row[cols.mobile]),
+              homeBuilding: cleanText(row[cols.homeBuilding]), homeStreet: cleanText(row[cols.homeStreet]),
+              homeBlock: cleanText(row[cols.homeBlock]), homeCity: cleanText(row[cols.homeCity]),
+              homeZip: digits(row[cols.homeZip]), taxId: digits(row[cols.taxId]),
+              bankCode: cleanText(row[cols.bankCode]), account: digits(row[cols.account]),
+              branch: cleanText(row[cols.branch]), accountName: cleanText(row[cols.accountName]),
+              bankFee: cleanText(row[cols.bankFee]) || "OUR", bic: cleanText(row[cols.bic]),
+              iban: digits(row[cols.iban]),
+              bStreet: String(row[cols.bStreet] || "").replace(/[\u200b\u200c\u200d\ufeff]/g, "").replace(/^\s+|\s+$/g, "").replace(/,+$/, ""),
+              bBlock: cleanText(row[cols.bBlock]), bCity: cleanText(row[cols.bCity]), bZip: digits(row[cols.bZip]),
+              raw: {
+                branch: String(row[cols.branch] || ""), bBlock: String(row[cols.bBlock] || ""),
+                accountName: String(row[cols.accountName] || ""), firstName: String(row[cols.first] || ""),
+              },
+            });
+          }
+        });
+        var first = null;
+        for (var i = 0; i < records.length; i++) { var d = parseDateTh(records[i].startDate); if (d) { first = d; break; } }
+        self.set({
+          records: records, employeeName: file.name, loadError: "",
+          edits: {}, confirmed: {}, excluded: {}, selectedId: null, filter: "all", exportMessage: "",
+          month: first ? MONTHS[first.month - 1] : self.state.month,
+          year: first ? first.year + 543 : self.state.year,
+        });
+        self.checkDuplicates();
+      } catch (err) { self.set({ loadError: "อ่านไฟล์พนักงานไม่สำเร็จ: " + err.message }); }
+    });
+  },
+
+  /* ---- เรียก Apps Script (ฐานข้อมูล Google Sheet) ---- */
+  api: function (method, payload) {
+    var s = this.state;
+    if (!s.scriptUrl || !s.accessKey) return Promise.reject(new Error("ยังไม่ได้ตั้งค่า Web app URL / Access key"));
+    var req = method === "GET"
+      ? fetch(s.scriptUrl + "?" + Object.keys(payload).map(function (k) { return k + "=" + encodeURIComponent(payload[k]); }).join("&") + "&key=" + encodeURIComponent(s.accessKey))
+      : fetch(s.scriptUrl, { method: "POST", body: JSON.stringify(Object.assign({ key: s.accessKey }, payload)) });
+    return req.then(function (r) { return r.json(); }).then(function (d) { if (!d.ok) throw new Error(d.error || "unknown error"); return d; });
+  },
+  toMap: function (arr) { var m = {}; (arr || []).forEach(function (v) { m[String(v)] = true; }); return m; },
+
+  /* ---- โหลดข้อมูลระบบ: เลขรันนิ่งล่าสุด + พจนานุกรมสาขา (ไม่มีข้อมูลส่วนบุคคล) ---- */
+  initSystem: function () {
+    var self = this;
+    if (!this.state.scriptUrl || !this.state.accessKey) {
+      this.set({ prev: null, sysInfo: null, loadError: "ยังไม่ได้เชื่อมต่อฐานข้อมูล — กด ⚙ ตั้งค่า แล้ววาง Web app URL และ Access key" });
+      return;
+    }
+    this.api("GET", { action: "system" }).then(function (d) {
+      var prev = { taxIds: {}, empCodes: {}, accounts: {}, branches: d.branches || {}, prefixPairs: self.toMap(d.prefixPairs) };
+      self.set({
+        prev: prev, loadError: "",
+        sysInfo: { veMax: d.veMax, vjMax: d.vjMax, bizRows: d.bizRows, refRows: d.refRows, branchCount: Object.keys(d.branches || {}).length },
+        veLast: d.veMax, vjLast: d.vjMax,
+        veStart: self.state.veStart || d.veMax + 1, vjStart: self.state.vjStart || d.vjMax + 1,
+      });
+      if (self.state.records.length) self.checkDuplicates();
+    }).catch(function (err) { self.set({ prev: null, sysInfo: null, loadError: "เชื่อมต่อฐานข้อมูลไม่สำเร็จ: " + err.message }); });
+  },
+
+  /* ---- ตรวจซ้ำกับระบบ: ส่งค่าของชุดนี้ไป ระบบตอบกลับเฉพาะค่าที่ซ้ำ ---- */
+  checkDuplicates: function () {
+    var self = this, s = this.state;
+    if (!s.prev || !s.records.length) return;
+    var vals = { taxIds: [], empCodes: [], accounts: [] };
+    s.records.forEach(function (r) {
+      var t = self.val(r, "taxId"), e = self.val(r, "empCode"), a = self.val(r, "account");
+      if (t) vals.taxIds.push(t); if (e) vals.empCodes.push(e); if (a) vals.accounts.push(a);
+    });
+    this.set({ checking: true });
+    this.api("POST", { action: "check", taxIds: vals.taxIds, empCodes: vals.empCodes, accounts: vals.accounts }).then(function (d) {
+      var prev = Object.assign({}, self.state.prev, { taxIds: self.toMap(d.taxIds), empCodes: self.toMap(d.empCodes), accounts: self.toMap(d.accounts) });
+      self.set({ prev: prev, checking: false });
+    }).catch(function (err) { self.set({ checking: false, loadError: "ตรวจซ้ำกับระบบไม่สำเร็จ: " + err.message }); });
+  },
+
+  loadSamples: function () {
+    var self = this;
+    fetch("sample_data/Employee_August2026.xlsx").then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); })
+      .then(function (b) { self.onEmployeeFile([new File([b], "Employee_August2026.xlsx")]); })
+      .catch(function (err) { self.set({ loadError: "โหลดไฟล์ตัวอย่างไม่สำเร็จ (วางไฟล์ไว้ที่ sample_data/): " + err.message }); });
+  },
+
+  /* ---- validation + row build (เหมือนต้นแบบทุกกฎ) ---- */
+  build: function () {
+    var s = this.state, self = this;
+    var prev = s.prev;
+    var monthIndex = MONTHS.indexOf(s.month) + 1;
+    var targetYear = s.year - 543;
+    var active = s.records.filter(function (r) { return !s.excluded[r.id]; });
+    var ft = active.filter(function (r) { return r.type === "FT"; });
+    var pt = active.filter(function (r) { return r.type === "PT"; });
+    var ordered = ft.concat(pt);
+    var veBase = s.veStart || (s.veLast != null ? s.veLast + 1 : 1);
+    var vjBase = s.vjStart || (s.vjLast != null ? s.vjLast + 1 : 1);
+
+    var seen = { taxId: {}, empCode: {}, account: {} };
+    ordered.forEach(function (r) {
+      ["taxId", "empCode", "account"].forEach(function (k) {
+        var v = self.val(r, k);
+        if (v) seen[k][v] = (seen[k][v] || 0) + 1;
+      });
+    });
+
+    var veN = veBase, vjN = vjBase;
+    return ordered.map(function (rec, i) {
+      var base = function (f) { return self.val(rec, f); };
+      var issues = [];
+      function add(kind, key, title, detail, fix) { issues.push({ kind: kind, key: key, title: title, detail: detail, fix: fix }); }
+
+      var applied = {};
+      function autofix(key, field, to, title, detail) {
+        var from = base(field);
+        if (String(from) === String(to)) return;
+        applied[field] = { from: String(from == null ? "" : from), to: String(to == null ? "" : to) };
+        add("autofix", key, title, detail, { field: field, from: String(from == null ? "" : from), to: String(to == null ? "" : to) });
+      }
+      var rawFields = rec.raw || {};
+      Object.keys(rawFields).forEach(function (k) {
+        var raw = rawFields[k], clean = cleanText(raw);
+        if (raw && raw !== clean) { applied[k] = { from: raw, to: clean }; add("autofix", "clean-" + k, "ตัดช่องว่าง/จุลภาค/นิคหิตอัตโนมัติ", "\u201c" + raw + "\u201d → \u201c" + clean + "\u201d", { field: k, from: raw, to: clean }); }
+      });
+      if (base("bankCode") === "BBL" && base("bic") && base("bic") !== "BKKBTHBK") {
+        autofix("bic", "bic", "BKKBTHBK", "แก้ BIC อัตโนมัติ", base("bic") + " → BKKBTHBK");
+      }
+      Object.keys(BRANCH_DICT).forEach(function (wrong) {
+        var current = applied.branch ? applied.branch.to : base("branch");
+        if (current && current.indexOf(wrong) > -1) {
+          autofix("branch-" + wrong, "branch", current.replace(wrong, BRANCH_DICT[wrong]), "แก้ชื่อสาขาอัตโนมัติ", wrong + " → " + BRANCH_DICT[wrong]);
+        }
+      });
+
+      var g = function (f) { return applied[f] ? applied[f].to : base(f); };
+      var code = rec.type === "FT" ? "VE" + String(veN++).padStart(5, "0") : "VJ" + String(vjN++).padStart(5, "0");
+      var sp = stripPrefix(g("firstName")), prefix = sp.prefix, rest = sp.rest;
+      var name = cleanText(g("firstName")) + " " + cleanText(g("lastName"));
+
+      var required = [["empCode","Employee Code"],["firstName","ชื่อ"],["lastName","นามสกุล"],["taxId","TaxID"],["mobile","เบอร์มือถือ"],["account","เลขบัญชี"],["branch","สาขาธนาคาร"],["iban","รหัสสาขา"],["homeStreet","ตำบล/แขวง"],["homeBlock","อำเภอ/เขต"],["homeCity","จังหวัด"],["homeZip","รหัสไปรษณีย์"]];
+      required.forEach(function (pair) { if (!g(pair[0])) add("error", "req-" + pair[0], "ไม่มีข้อมูล: " + pair[1], "ช่องจำเป็นว่าง กรอกก่อนส่งออก"); });
+
+      var tax = g("taxId");
+      if (tax && !/^\d{13}$/.test(tax)) add("error", "tax-len", "TaxID ไม่ใช่ 13 หลัก", "ปัจจุบัน " + tax.length + " หลัก");
+      else if (tax && !taxIdValid(tax)) add("error", "tax-check", "TaxID check digit ผิด", "ตรวจกับสำเนาบัตรประชาชน");
+      if (!prefix && g("firstName")) add("error", "prefix", "ไม่รู้จักคำนำหน้า", "แก้ช่อง First Name ให้มีคำนำหน้า (นาย/นาง/นางสาว)");
+      var acct = g("account");
+      if (acct && acct.length !== 10) add("error", "acct-len", "เลขบัญชีไม่ใช่ 10 หลัก", "ปัจจุบัน " + acct.length + " หลัก");
+      var iban = g("iban");
+      if (iban && iban.length !== 4) add("error", "iban-len", "รหัสสาขาไม่ใช่ 4 หลัก", "ปัจจุบัน " + iban.length + " หลัก");
+      var zip = g("homeZip");
+      if (zip && zip.length !== 5) add("error", "zip-len", "รหัสไปรษณีย์ไม่ใช่ 5 หลัก", "ปัจจุบัน " + zip.length + " หลัก");
+      ["taxId", "empCode", "account"].forEach(function (k) {
+        var v = g(k), label = { taxId: "TaxID", empCode: "Employee Code", account: "เลขบัญชี" }[k];
+        if (v && seen[k][v] > 1) add("error", "dup-" + k, label + " ซ้ำภายในชุดนี้", "พบ " + seen[k][v] + " รายการที่ใช้ค่าเดียวกัน");
+        if (v && prev) {
+          var set = k === "taxId" ? prev.taxIds : k === "empCode" ? prev.empCodes : prev.accounts;
+          if (set[v]) add("error", "dupprev-" + k, label + " ซ้ำกับข้อมูลในระบบ SAP", "พบใน Business Partner Master Data แล้ว — อาจมีรหัส BP อยู่แล้ว");
+        }
+      });
+
+      var branchName = g("branch");
+      var province = bare(g("homeCity"));
+      var allowed = ZIP_BY_PROVINCE[province];
+      if (zip && zip.length === 5 && allowed && allowed.indexOf(zip.slice(0, 2)) === -1) {
+        add("warning", "zip-province", "รหัสไปรษณีย์ไม่ตรงจังหวัด/อำเภอ", zip + " ไม่อยู่ในช่วงของ " + province + " — ตรวจกับทะเบียนบ้าน");
+      }
+      if (zip && ZIP_FIX[zip]) {
+        add("warning", "zip-invalid", "รหัสไปรษณีย์ไม่มีอยู่จริง", zip + " ไม่มีในฐานข้อมูล — เสนอ " + ZIP_FIX[zip] + " ตาม ต." + bare(g("homeStreet")) + " อ." + bare(g("homeBlock")), { field: "homeZip", to: ZIP_FIX[zip] });
+      }
+      if (acct && iban && g("bankCode") === "BBL" && parseInt(iban) < 1000 && acct.indexOf("098") !== 0) {
+        var pairKey = acct.slice(0, 3) + "-" + iban;
+        var knownPair = prev && prev.prefixPairs[pairKey];
+        if (!knownPair && acct.slice(0, 3) !== iban.slice(1)) add("warning", "acct-branch", "เลขบัญชีกับรหัสสาขาไม่สอดคล้อง", "ตรวจเลขบัญชีกับหน้าสมุดบัญชี (" + acct.slice(0, 3) + " vs สาขา " + iban + ")");
+      }
+      if (prev && iban && prev.branches[iban]) {
+        var b = prev.branches[iban];
+        if (b.name && branchName && b.name !== branchName) add("warning", "branch-diff", "ชื่อสาขาต่างจากข้อมูลอ้างอิง", "พนักงานอื่นในบริษัทใช้ชื่อ \u201c" + b.name + "\u201d สำหรับรหัสสาขา " + iban);
+        else if (b.street && g("bStreet") && b.street.trim() !== g("bStreet").trim()) add("warning", "branch-addr", "ที่อยู่สาขาต่างจากข้อมูลอ้างอิง", "ข้อมูลอ้างอิง: " + b.street);
+      }
+      var dob = parseDateTh(g("dob"));
+      if (tax && dob) {
+        if (tax[0] === "1" && dob.year < 1984) add("warning", "tax-year", "หลักแรก TaxID ไม่สอดคล้องปีเกิด", "ขึ้นต้น 1 แต่เกิด " + dob.year);
+        else if (tax[0] === "3" && dob.year >= 1984) add("warning", "tax-year", "หลักแรก TaxID ไม่สอดคล้องปีเกิด", "ขึ้นต้น 3 แต่เกิด " + dob.year);
+        else if (["1", "3"].indexOf(tax[0]) === -1) add("warning", "tax-year", "TaxID ขึ้นต้นด้วย " + tax[0], "เทียบกับสำเนาบัตรประชาชน");
+      }
+      var building = g("homeBuilding");
+      if (building && !/(หมู่|ม\.|ซอย|ซ\.|ถนน|ถ\.)/.test(building)) add("warning", "addr-partial", "ที่อยู่ไม่ครบ", "ไม่พบหมู่/ซอย/ถนน — ปัจจุบัน \u201c" + building + "\u201d");
+      if (/99/.test(building) && /18/.test(building) && /คลองหนึ่ง/.test(bare(g("homeStreet")))) add("warning", "addr-university", "ที่อยู่บ้านเป็นที่อยู่มหาวิทยาลัย", "99 หมู่ 18 ต.คลองหนึ่ง อ.คลองหลวง — ยืนยันกับพนักงาน");
+      if (g("accountName") && cleanText(g("accountName")) !== name) add("warning", "acctname", "ชื่อบัญชีไม่ตรงชื่อ-สกุล", "บัญชี: " + g("accountName"));
+      if (rec.highlighted) add("warning", "highlight", "แถวถูกไฮไลต์ในไฟล์ Employee", "เคยเป็นพนักงาน อาจมีรหัส BP ใน SAP แล้ว");
+      var sd = parseDateTh(g("startDate"));
+      if (sd && (sd.month !== monthIndex || sd.year !== targetYear)) add("warning", "startdate", "Start Date ไม่อยู่ในเดือนปลายทาง", g("startDate") + " ไม่ใช่ " + s.month + " " + s.year);
+      if (prefix === "นางสาว" && /married/i.test(g("marital"))) add("info", "marital", "คำนำหน้า นางสาว แต่สถานะ Married", "ทำได้ตามกฎหมาย ขอให้ตรงบัตรประชาชน");
+
+      var blocking = issues.filter(function (x) { return x.kind === "error"; });
+      var warnings = issues.filter(function (x) { return x.kind === "warning"; });
+      var unconfirmed = warnings.filter(function (w) { return !s.confirmed[rec.id + "|" + w.key]; });
+      var status = blocking.length ? "error" : unconfirmed.length ? "warning" : issues.some(function (x) { return x.kind === "autofix"; }) ? "autofix" : "pass";
+
+      return { rec: rec, index: i + 1, code: code, prefix: prefix, firstRest: rest, lastName: cleanText(g("lastName")), name: name, issues: issues, blocking: blocking, warnings: warnings, unconfirmed: unconfirmed, status: status, get: g };
+    });
+  },
+
+  applyFix: function (id, fix) { if (fix) this.setField(id, fix.field, fix.to); },
+  confirm: function (id, key) { var c = Object.assign({}, this.state.confirmed); c[id + "|" + key] = true; this.set({ confirmed: c }); },
+
+  /* ---- SAP row builders ---- */
+  masterValues: function (row) {
+    var g = row.get;
+    return [row.code, g("empCode"), row.name, row.prefix, row.firstRest, row.lastName, "S", 123,
+      g("taxId") ? Number(g("taxId")) : null, g("mobile"), 1, "I", -1, 1, "N",
+      "_SYS00000000418", "_SYS00000000162", "IGN00", "N", "P", "N", "N"];
+  },
+  bankValues: function (row) {
+    var g = row.get;
+    return [row.code, g("bankCode"), g("branch"), "TH", g("account"), g("accountName"), g("iban"), g("bic"),
+      "E", "/", g("bic") === "BKKBTHBK" ? "DCR" : "MCL", g("bankFee") || "OUR",
+      g("bStreet"), g("bBlock"), g("bCity"), g("bZip")];
+  },
+  addressValues: function (row) {
+    var g = row.get;
+    return [row.code, "B", row.name, g("homeBuilding"), g("homeStreet"), g("homeBlock"), g("homeCity"), "TH", g("homeZip")];
+  },
+
+  /* ---- export .xlsx 3 ชีต ตามฟอร์แมตคอลัมน์ SAP DTW ---- */
+  exportVe: function (rows) {
+    var self = this;
+    try {
+      var wb = XLSX.utils.book_new();
+      [["Master", MASTER_HEADERS, function (r) { return self.masterValues(r); }],
+       ["Bank", BANK_HEADERS, function (r) { return self.bankValues(r); }],
+       ["Address", ADDRESS_HEADERS, function (r) { return self.addressValues(r); }]].forEach(function (p) {
+        var ws = XLSX.utils.aoa_to_sheet([p[1]].concat(rows.map(p[2])));
+        ws["!cols"] = p[1].map(function (h) { return { wch: Math.max(10, h.length + 2) }; });
+        XLSX.utils.book_append_sheet(wb, ws, p[0]);
+      });
+      var out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      var outName = "VE " + this.state.month + " " + this.state.year + ".xlsx";
+      this.download(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), outName);
+      this.saveRun("xlsx", rows.length + " รายการ · " + rows.filter(function (r) { return r.code.indexOf("VE") === 0; }).length + " VE / " + rows.filter(function (r) { return r.code.indexOf("VJ") === 0; }).length + " VJ", [
+        { filename: outName, b64: this.toB64(new Uint8Array(out)), mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+      ]);
+      this.set({ exportMessage: "สร้างไฟล์สำเร็จ — 3 ชีต Master/Bank/Address" });
+    } catch (err) { this.set({ exportMessage: "สร้างไฟล์ไม่สำเร็จ: " + err.message }); }
+  },
+
+  exportLog: function (rows) {
+    var self = this;
+    var header = ["CardCode", "ช่อง", "ค่าเดิม", "ค่าใหม่", "เหตุผล", "ผู้ยืนยัน"];
+    var data = [header];
+    rows.forEach(function (row) {
+      var edits = self.state.edits[row.rec.id] || {};
+      Object.keys(edits).forEach(function (field) {
+        if (String(edits[field]) === String(row.rec[field] == null ? "" : row.rec[field])) return;
+        data.push([row.code, fieldLabel(field), String(row.rec[field] == null ? "" : row.rec[field]), String(edits[field] == null ? "" : edits[field]), "แก้ไขโดยเจ้าหน้าที่ในหน้าตรวจสอบ", "เจ้าหน้าที่พัสดุ"]);
+      });
+      row.issues.filter(function (i) { return i.kind === "autofix"; }).forEach(function (i) {
+        var fx = i.fix || {};
+        data.push([row.code, fx.field ? fieldLabel(fx.field) : "-", fx.from || "", fx.to || "", i.title + " · " + i.detail, "ระบบ (Auto-fix)"]);
+      });
+      row.warnings.filter(function (w) { return self.state.confirmed[row.rec.id + "|" + w.key]; }).forEach(function (w) {
+        data.push([row.code, "-", "", "", "ยืนยัน Warning: " + w.title + " · " + w.detail, "เจ้าหน้าที่พัสดุ"]);
+      });
+    });
+    if (data.length === 1) data.push(["-", "-", "-", "-", "ไม่มีค่าที่ต่างจากไฟล์ Employee", "-"]);
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 28 }, { wch: 28 }, { wch: 46 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, ws, "ChangeLog");
+    var logName = "ChangeLog VE " + this.state.month + " " + this.state.year + ".xlsx";
+    var out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    this.download(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), logName);
+    this.saveRun("log", "Change Log " + (data.length - 1) + " รายการ", [
+      { filename: logName, b64: this.toB64(new Uint8Array(out)), mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+    ]);
+  },
+
+  utf16le: function (text) {
+    var u8 = new Uint8Array(2 + text.length * 2);
+    u8[0] = 0xff; u8[1] = 0xfe;
+    for (var i = 0; i < text.length; i++) { var c = text.charCodeAt(i); u8[2 + i * 2] = c & 0xff; u8[3 + i * 2] = c >> 8; }
+    return u8;
+  },
+  exportText: function (rows) {
+    var self = this;
+    var plans = [
+      { key: "Master", head: MASTER_HEADERS, build: function (r) { return self.masterValues(r); } },
+      { key: "Bank", head: BANK_HEADERS, build: function (r) { return self.bankValues(r); } },
+      { key: "Address", head: ADDRESS_HEADERS, build: function (r) { return self.addressValues(r); } },
+    ];
+    function strip(v) { return String(v === null || v === undefined ? "" : v).replace(/["\u201c\u201d]/g, "").replace(/[\t\r\n]+/g, " "); }
+    var files = [];
+    plans.forEach(function (plan) {
+      var lines = [plan.head.map(strip).join("\t")];
+      rows.forEach(function (row) { var vals = plan.build(row); lines.push(plan.head.map(function (_, c) { return strip(vals[c]); }).join("\t")); });
+      var filename = "VE " + self.state.month + " " + self.state.year + " - " + plan.key + ".txt";
+      files.push({ filename: filename, b64: self.toB64(self.utf16le(lines.join("\r\n") + "\r\n")), mime: "text/plain;charset=utf-16le" });
+    });
+    files.forEach(function (file, i) { setTimeout(function () { self.download(new Blob([self.fromB64(file.b64)], { type: file.mime }), file.filename); }, i * 400); });
+    this.saveRun("txt", "Unicode text 3 ชีท · " + rows.length + " รายการ", files);
+    this.set({ exportMessage: "สร้างไฟล์ Unicode text 3 ไฟล์ (Master, Bank, Address)" });
+  },
+
+  toB64: function (u8) { var s = ""; for (var i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); },
+  fromB64: function (b64) { var bin = atob(b64), u8 = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return u8; },
+  redownload: function (file) { this.download(new Blob([this.fromB64(file.b64)], { type: file.mime || "application/octet-stream" }), file.filename); },
+  download: function (blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  },
+
+  /* ---- ประวัติ: ใช้ Apps Script (Google Sheet) ถ้าตั้งค่า URL ไว้ ไม่งั้น fallback เป็น localStorage ---- */
+  saveRun: function (kind, note, files) {
+    var self = this;
+    var run = { id: Date.now() + "-" + Math.random().toString(36).slice(2, 7), at: new Date().toISOString(), kind: kind, note: note, files: files };
+    if (this.state.scriptUrl) {
+      fetch(this.state.scriptUrl, { method: "POST", body: JSON.stringify({ action: "save", run: run, key: this.state.accessKey }) })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { if (data.ok) self.set({ history: data.runs }); })
+        .catch(function (err) { self.appendLocalHistory(run); console.error("บันทึกลง Google Sheet ไม่สำเร็จ, ใช้ localStorage แทน:", err); });
+    } else {
+      this.appendLocalHistory(run);
+    }
+  },
+  appendLocalHistory: function (run) {
+    var history = [run].concat(this.loadLocalHistory()).slice(0, 8);
+    try { localStorage.setItem("veGenHistory", JSON.stringify(history)); } catch (e) {}
+    this.set({ history: history });
+  },
+  loadLocalHistory: function () { try { return JSON.parse(localStorage.getItem("veGenHistory") || "[]"); } catch (e) { return []; } },
+  refreshHistory: function () {
+    var self = this;
+    if (this.state.scriptUrl) {
+      fetch(this.state.scriptUrl + "?action=list&key=" + encodeURIComponent(this.state.accessKey)).then(function (r) { return r.json(); }).then(function (data) {
+        if (data.ok) self.set({ history: data.runs });
+      }).catch(function (err) { console.error("อ่านประวัติจาก Google Sheet ไม่สำเร็จ:", err); self.set({ history: self.loadLocalHistory() }); });
+    } else {
+      this.set({ history: this.loadLocalHistory() });
+    }
+  },
+  clearHistory: function () {
+    var self = this;
+    if (this.state.scriptUrl) {
+      fetch(this.state.scriptUrl, { method: "POST", body: JSON.stringify({ action: "clear", key: this.state.accessKey }) }).then(function () { self.set({ history: [] }); });
+    } else {
+      try { localStorage.removeItem("veGenHistory"); } catch (e) {}
+      this.set({ history: [] });
+    }
+  },
+  saveSettings: function (url, key) {
+    this.state.scriptUrl = (url || "").trim();
+    this.state.accessKey = (key || "").trim();
+    localStorage.setItem("veGenScriptUrl", this.state.scriptUrl);
+    localStorage.setItem("veGenAccessKey", this.state.accessKey);
+    this.set({ settingsOpen: false });
+    this.initSystem();
+    this.refreshHistory();
+  },
+  testConnection: function () {
+    var url = ((document.getElementById("scriptUrlInput") || {}).value || "").trim();
+    var key = ((document.getElementById("accessKeyInput") || {}).value || "").trim();
+    if (!url || !key) { alert("กรุณาวาง Web app URL และ Access key ก่อน"); return; }
+    fetch(url + "?action=ping&key=" + encodeURIComponent(key)).then(function (r) { return r.json(); }).then(function (d) {
+      alert(d.ok ? "เชื่อมต่อสำเร็จ ✓\nBusinessPartner " + d.bizRows + " แถว · EmployeeMaster " + d.refRows + " แถว" : "เชื่อมต่อไม่สำเร็จ: " + d.error);
+    }).catch(function (err) { alert("เชื่อมต่อไม่สำเร็จ: " + err.message); });
+  },
+
+  statusMeta: function (status) {
+    return {
+      error: { label: "Error", bg: "#FDE8EA", fg: "#C41230" },
+      warning: { label: "Warning", bg: "#FFF3D6", fg: "#8A6200" },
+      autofix: { label: "Auto-fix", bg: "#E8F0FE", fg: "#065FD4" },
+      pass: { label: "ผ่าน", bg: "#E3F5E7", fg: "#1E7B34" },
+      info: { label: "Info", bg: "#F2F2F2", fg: "#606060" },
+    }[status];
+  },
+  badgeStyle: function (status) { var m = this.statusMeta(status); return "display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:12px;font-weight:600;background:" + m.bg + ";color:" + m.fg + ";"; },
+  maskTax: function (v) { return /^\d{13}$/.test(v) ? (v.slice(0,1)+"-"+v.slice(1,5)+"-xxxxx-"+v.slice(10,12)+"-"+v.slice(12)) : v; },
+  maskAcct: function (v) { return v && v.length >= 4 ? "xxxxxx" + v.slice(-4) : v; },
+
+  /* ============ RENDER ============ */
+  render: function () {
+    var s = this.state, self = this;
+    var built = (s.records.length && s.prev) ? this.build() : [];
+    var counts = { error: 0, warning: 0, autofix: 0, pass: 0 };
+    built.forEach(function (r) { counts[r.status]++; });
+    var fixPoints = built.reduce(function (n, r) { return n + r.issues.filter(function (i) { return i.kind === "autofix"; }).length; }, 0);
+    var canExport = built.length > 0 && counts.error === 0 && counts.warning === 0;
+    var ready = s.records.length > 0 && !!s.prev && !s.checking;
+    var nextDisabled = s.screen === 0 ? !ready : s.screen === 2 ? !canExport : s.screen === 4;
+    var screenNames = ["อัปโหลด", "กำหนดเลขรหัส", "ผลตรวจสอบ", "พรีวิว", "ส่งออก"];
+
+    var html = "";
+    html += '<div style="font-family:\'Noto Sans Thai\',\'Roboto\',sans-serif;min-height:100vh;display:flex;flex-direction:column;color:#0F0F0F;">';
+
+    /* top bar */
+    html += '<div style="height:56px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:#fff;border-bottom:1px solid #E5E5E5;position:sticky;top:0;z-index:20;">';
+    html += '<div style="display:flex;align-items:center;gap:12px;"><div style="width:32px;height:32px;border-radius:8px;background:#0F0F0F;color:#fff;display:flex;align-items:center;justify-content:center;font-family:Roboto;font-weight:700;font-size:14px;">TU</div>';
+    html += '<div style="font-size:15px;font-weight:700;">ระบบสร้างไฟล์นำเข้า SAP (VE/VJ)</div>';
+    html += '<div style="font-size:12px;color:#606060;padding:2px 10px;background:#F2F2F2;border-radius:9999px;">ฝ่ายพัสดุ · THAMC</div></div>';
+    html += '<div style="display:flex;align-items:center;gap:10px;">';
+    html += '<div style="font-size:12px;color:' + (s.sysInfo ? "#1E7B34" : "#606060") + ';">' + (s.sysInfo ? "เชื่อมต่อฐานข้อมูลแล้ว" : s.scriptUrl ? "กำลังเชื่อมต่อ…" : "ยังไม่เชื่อมต่อฐานข้อมูล") + '</div>';
+    html += '<button style="height:32px;padding:0 14px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:13px;font-weight:500;white-space:nowrap;flex-shrink:0;" onclick="App.set({settingsOpen:true})">⚙ ตั้งค่า</button>';
+    html += '<button style="height:32px;padding:0 14px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:13px;font-weight:500;white-space:nowrap;flex-shrink:0;" onclick="App.openHistory()">' + (s.history.length ? "ประวัติ (" + s.history.length + ")" : "ประวัติการทำไฟล์") + '</button>';
+    html += '</div></div>';
+
+    /* stepper */
+    html += '<div style="flex:0 0 auto;background:#fff;border-bottom:1px solid #E5E5E5;padding:16px 24px;"><div style="max-width:1340px;margin:0 auto;display:flex;align-items:center;">';
+    screenNames.forEach(function (label, i) {
+      var st = i < s.screen ? "done" : i === s.screen ? "current" : "upcoming";
+      var base = "width:28px;height:28px;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:Roboto;";
+      var circle = st === "current" ? base + "background:#0F0F0F;color:#fff;" : st === "done" ? base + "background:#065FD4;color:#fff;" : base + "background:#F2F2F2;color:#606060;";
+      var lbl = st === "upcoming" ? "font-size:13px;color:#606060;" : "font-size:13px;font-weight:600;color:#0F0F0F;";
+      html += '<div style="display:flex;align-items:center;"><div style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="App.goToScreen(' + i + ')"><div style="' + circle + '">' + (st === "done" ? "✓" : (i + 1)) + '</div><div style="' + lbl + '">' + label + '</div></div>';
+      if (i < 4) html += '<div style="height:1px;width:48px;margin:0 12px;background:' + (i < s.screen ? "#065FD4" : "#E5E5E5") + ';"></div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+
+    /* main content */
+    html += '<div style="flex:1 1 auto;max-width:1340px;width:100%;margin:0 auto;padding:32px 24px 120px;">';
+    if (s.screen === 0) html += this.screenUpload();
+    else if (s.screen === 1) html += this.screenNumbering(built);
+    else if (s.screen === 2) html += this.screenReview(built, counts, canExport);
+    else if (s.screen === 3) html += this.screenPreview(built);
+    else html += this.screenExport(built, counts);
+    html += '</div>';
+
+    /* footer nav */
+    html += '<div style="position:sticky;bottom:0;background:#fff;border-top:1px solid #E5E5E5;padding:16px 24px;display:flex;justify-content:center;z-index:20;"><div style="max-width:1340px;width:100%;display:flex;justify-content:space-between;">';
+    html += '<button style="height:40px;padding:0 20px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:14px;font-weight:500;' + (s.screen === 0 ? "cursor:not-allowed;opacity:.4;" : "cursor:pointer;") + '" onclick="App.goBack()">← ย้อนกลับ</button>';
+    html += '<button style="height:40px;padding:0 20px;border-radius:9999px;border:none;background:' + (nextDisabled ? "#D9D9D9" : "#0F0F0F") + ';color:#fff;font-size:14px;font-weight:500;' + (nextDisabled ? "cursor:not-allowed;" : "cursor:pointer;") + '" onclick="App.goNext()">' + (s.screen === 4 ? "เสร็จสิ้น" : "ถัดไป →") + '</button>';
+    html += '</div></div>';
+
+    if (s.selectedId) html += this.drawer(built);
+    if (s.historyOpen) html += this.historyModal();
+    if (s.settingsOpen) html += this.settingsModal();
+
+    html += '</div>';
+    document.getElementById("root").innerHTML = html;
+    this._wireUploads();
+  },
+
+  goToScreen: function (i) { if (i === 0 || (this.state.records.length && this.state.prev && i <= Math.max(this.state.screen, 2))) this.set({ screen: i }); },
+  goBack: function () { if (this.state.screen > 0) this.set({ screen: this.state.screen - 1 }); },
+  goNext: function () {
+    var built = (this.state.records.length && this.state.prev) ? this.build() : [];
+    var counts = { error: 0, warning: 0 };
+    built.forEach(function (r) { if (r.status === "error") counts.error++; if (r.status === "warning") counts.warning++; });
+    var canExport = built.length > 0 && counts.error === 0 && counts.warning === 0;
+    var ready = this.state.records.length > 0 && !!this.state.prev && !this.state.checking;
+    var nextDisabled = this.state.screen === 0 ? !ready : this.state.screen === 2 ? !canExport : this.state.screen === 4;
+    if (!nextDisabled) this.set({ screen: this.state.screen + 1 });
+  },
+  openHistory: function () { this.set({ historyOpen: true }); this.refreshHistory(); },
+
+  screenUpload: function () {
+    var s = this.state;
+    var html = '<div style="display:flex;flex-direction:column;gap:24px;">';
+    html += '<div><div style="font-size:22px;font-weight:700;">1. อัปโหลดไฟล์</div><div style="font-size:14px;color:#606060;margin-top:4px;">ระบบตรวจเลขรันนิ่งและข้อมูลซ้ำกับฐานข้อมูลใน Google Sheet ให้อัตโนมัติ — อัปโหลดเฉพาะไฟล์พนักงานใหม่ที่ต้องออกรหัสในรอบนี้</div></div>';
+    html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:12px;"><div style="font-size:14px;font-weight:600;">ไฟล์ข้อมูลพนักงานใหม่ (.xlsx)</div><div style="font-size:12px;color:#606060;">ต้องมีชีต Full Time และ Part Time · แถว 1 เป็นหัวคอลัมน์</div>';
+    html += '<label style="border:1.5px dashed #E5E5E5;border-radius:10px;padding:20px;display:flex;flex-direction:column;align-items:center;gap:10px;min-height:104px;justify-content:center;cursor:pointer;"><div style="font-size:13px;color:#606060;">' + esc(s.employeeName || "ยังไม่ได้เลือกไฟล์พนักงานใหม่") + '</div><div style="height:36px;padding:0 16px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:13px;font-weight:500;display:flex;align-items:center;white-space:nowrap;flex-shrink:0;">เลือกไฟล์</div><input id="empInput" type="file" accept=".xlsx" style="display:none;"></label>';
+    if (s.records.length) html += '<div style="font-size:12px;color:#1E7B34;font-weight:600;">อ่านได้ Full Time ' + s.records.filter(function(r){return r.type==="FT";}).length + ' · Part Time ' + s.records.filter(function(r){return r.type==="PT";}).length + ' รายชื่อ</div>';
+    html += '</div>';
+    if (s.sysInfo) html += '<div style="background:#F7F7F8;border:1px solid #E5E5E5;border-radius:12px;padding:16px 20px;font-size:12px;color:#606060;">ฐานข้อมูล: Business Partner ล่าสุด VE' + String(s.sysInfo.veMax).padStart(5,"0") + ' · VJ' + String(s.sysInfo.vjMax).padStart(5,"0") + ' · ' + s.sysInfo.bizRows + ' รายการ · อ้างอิงพนักงาน สาขาที่รู้จัก ' + s.sysInfo.branchCount + ' รหัส · ' + s.sysInfo.refRows + ' รายการ' + (s.checking ? ' · กำลังตรวจซ้ำกับระบบ…' : '') + '</div>';
+    if (s.loadError) html += '<div style="background:#FDE8EA;border:1px solid #F3C2C9;color:#C41230;border-radius:12px;padding:14px 18px;font-size:13px;">' + esc(s.loadError) + '</div>';
+    html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;"><div style="font-size:14px;font-weight:600;">เดือนปลายทางและชื่อไฟล์ผลลัพธ์</div><div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">';
+    html += '<div style="display:flex;flex-direction:column;gap:6px;"><label style="font-size:12px;color:#606060;">เดือน</label><select style="height:40px;min-width:150px;border:1px solid #E5E5E5;border-radius:8px;padding:0 12px;font-size:14px;background:#fff;" onchange="App.set({month:this.value})">' + MONTHS.map(function(m){ return '<option ' + (m===s.month?'selected':'') + '>' + m + '</option>'; }).join("") + '</select></div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px;"><label style="font-size:12px;color:#606060;">ปี พ.ศ.</label><input type="number" style="height:40px;width:110px;border:1px solid #E5E5E5;border-radius:8px;padding:0 12px;font-size:14px;" value="' + s.year + '" onchange="App.set({year:parseInt(this.value)||' + s.year + '})"></div>';
+    html += '<div style="flex:1;min-width:260px;"><div style="font-size:12px;color:#606060;margin-bottom:6px;">ชื่อไฟล์ผลลัพธ์</div><div style="height:40px;display:flex;align-items:center;padding:0 12px;background:#F2F2F2;border-radius:8px;font-family:Roboto;font-size:14px;font-weight:500;">VE ' + s.month + ' ' + s.year + '.xlsx</div></div>';
+    html += '</div></div></div>';
+    return html;
+  },
+
+  screenNumbering: function (built) {
+    var s = this.state;
+    var ve = built.filter(function (r) { return r.code.indexOf("VE") === 0; });
+    var vj = built.filter(function (r) { return r.code.indexOf("VJ") === 0; });
+    function range(rows) { return rows.length ? rows[0].code + " – " + rows[rows.length - 1].code : "—"; }
+    var card = function (title, count, lastLabel, val, setter, rangeLabel) {
+      return '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:16px;"><div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:14px;font-weight:600;">' + title + '</div><div style="font-size:12px;padding:2px 10px;border-radius:9999px;background:#F2F2F2;color:#606060;">' + count + ' รายชื่อ</div></div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:13px;color:#606060;"><span>เลขล่าสุดในระบบ (Business Partner)</span><span style="font-family:Roboto;font-weight:600;color:#0F0F0F;">' + lastLabel + '</span></div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;"><label style="font-size:12px;color:#606060;">เลขเริ่มต้นชุดนี้</label><input type="number" style="height:40px;width:140px;border:1px solid #E5E5E5;border-radius:8px;padding:0 12px;font-size:14px;font-family:Roboto;font-weight:600;" value="' + val + '" onchange="' + setter + '"></div>' +
+      '<div style="height:1px;background:#E5E5E5;"></div><div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:#606060;">ช่วงเลขที่จะใช้</span><span style="font-family:Roboto;font-weight:700;color:#065FD4;">' + rangeLabel + '</span></div></div>';
+    };
+    var html = '<div style="display:flex;flex-direction:column;gap:24px;"><div><div style="font-size:22px;font-weight:700;">2. กำหนดเลขรหัส</div><div style="font-size:14px;color:#606060;margin-top:4px;">อ่านเลขล่าสุดจากไฟล์เดือนก่อน แก้เลขเริ่มต้นได้หากมีการสร้างรหัสใน SAP เพิ่มระหว่างเดือน</div></div>';
+    html += '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;">';
+    html += card("Full Time → VE", built.filter(function(r){return r.rec.type==="FT";}).length, s.veLast != null ? "VE" + String(s.veLast).padStart(5, "0") : "—", s.veStart || "", "App.set({veStart:parseInt(this.value)||" + (s.veStart||0) + "})", range(ve));
+    html += card("Part Time → VJ", built.filter(function(r){return r.rec.type==="PT";}).length, s.vjLast != null ? "VJ" + String(s.vjLast).padStart(5, "0") : "—", s.vjStart || "", "App.set({vjStart:parseInt(this.value)||" + (s.vjStart||0) + "})", range(vj));
+    html += '</div></div>';
+    return html;
+  },
+
+  screenReview: function (built, counts, canExport) {
+    var s = this;
+    var st = this.state;
+    var fixedRowsCount = built.filter(function (r) { return r.issues.some(function (i) { return i.kind === "autofix"; }); }).length;
+    var chips = [
+      { key: "all", label: "ทั้งหมด (" + built.length + ")" },
+      { key: "error", label: "Error (" + counts.error + ")" },
+      { key: "warning", label: "Warning (" + counts.warning + ")" },
+      { key: "autofix", label: "Auto-fix (" + built.reduce(function(n,r){return n+r.issues.filter(function(i){return i.kind==="autofix";}).length;},0) + " จุด)" },
+      { key: "pass", label: "ผ่าน (" + counts.pass + ")" },
+    ];
+    var html = '<div style="display:flex;flex-direction:column;gap:20px;">';
+    html += '<div style="display:flex;align-items:start;justify-content:space-between;gap:16px;flex-wrap:wrap;"><div><div style="font-size:22px;font-weight:700;">3. ผลตรวจสอบ</div><div style="font-size:14px;color:#606060;margin-top:4px;">คลิกแถวเพื่อเปิดโหมดตรวจทีละคน แก้ค่าได้ทันทีและระบบตรวจซ้ำให้</div></div>';
+    html += '<button style="height:36px;padding:0 16px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:13px;font-weight:500;" onclick="App.set({mask:!App.state.mask})">' + (this.state.mask ? "แสดงข้อมูลเต็ม" : "ซ่อนข้อมูลอ่อนไหว") + '</button></div>';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+    chips.forEach(function (c) {
+      var active = st.filter === c.key;
+      html += '<button style="height:32px;padding:0 14px;border-radius:9999px;font-size:13px;font-weight:500;border:1px solid ' + (active ? "transparent" : "#E5E5E5") + ';background:' + (active ? "#0F0F0F" : "#fff") + ';color:' + (active ? "#fff" : "#0F0F0F") + ';" onclick="App.set({filter:\'' + c.key + '\'})">' + c.label + '</button>';
+    });
+    html += '</div>';
+    html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;overflow:hidden;">';
+    html += '<div style="display:grid;grid-template-columns:48px 88px minmax(0,1.3fr) 150px 130px 118px minmax(0,1fr) 108px;background:#F2F2F2;font-size:12px;font-weight:600;color:#606060;padding:10px 16px;gap:8px;"><div>#</div><div>รหัส</div><div>ชื่อ-สกุล</div><div>TaxID</div><div>เลขบัญชี</div><div>สถานะ</div><div>สิ่งที่ต้องตรวจ</div><div></div></div>';
+    var visible = built.filter(function (r) { return st.filter === "all" ? true : st.filter === "autofix" ? r.issues.some(function(i){return i.kind==="autofix";}) : r.status === st.filter; });
+    if (!visible.length) {
+      html += '<div style="padding:40px;text-align:center;font-size:13px;color:#606060;border-top:1px solid #E5E5E5;">' + (built.length === 0 ? "ยังไม่มีข้อมูล — กลับไปอัปโหลดไฟล์ที่ขั้นตอน 1" : "ไม่มีรายการในตัวกรองนี้") + '</div>';
+    }
+    visible.forEach(function (row) {
+      var first = row.blocking[0] || row.unconfirmed[0] || row.issues[0];
+      var showConfirm = row.unconfirmed.length > 0 && row.blocking.length === 0;
+      html += '<div style="display:grid;grid-template-columns:48px 88px minmax(0,1.3fr) 150px 130px 118px minmax(0,1fr) 108px;gap:8px;align-items:center;padding:12px 16px;border-top:1px solid #E5E5E5;cursor:pointer;background:' + (row.rec.highlighted ? "#FFFBEF" : "#fff") + ';" onclick="App.set({selectedId:\'' + row.rec.id + '\'})">';
+      html += '<div style="font-size:13px;color:#606060;font-family:Roboto;">' + row.index + '</div>';
+      html += '<div style="font-size:13px;font-weight:600;font-family:Roboto;">' + row.code + '</div>';
+      html += '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(row.name) + '</div>';
+      html += '<div style="font-size:13px;font-family:Roboto;color:#606060;">' + esc(st.mask ? App.maskTax(row.get("taxId")) : row.get("taxId")) + '</div>';
+      html += '<div style="font-size:13px;font-family:Roboto;color:#606060;">' + esc(st.mask ? App.maskAcct(row.get("account")) : row.get("account")) + '</div>';
+      html += '<div><span style="' + App.badgeStyle(row.status) + '">' + App.statusMeta(row.status).label + '</span></div>';
+      html += '<div style="font-size:12px;color:#606060;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (first ? esc(first.title) : "—") + '</div>';
+      html += '<div style="text-align:right;">';
+      if (showConfirm) html += '<button style="height:28px;padding:0 14px;border-radius:9999px;background:#065FD4;color:#fff;border:none;font-size:12px;font-weight:500;white-space:nowrap;" onclick="event.stopPropagation();App.confirmRow(\'' + row.rec.id + '\')">ยืนยัน</button>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:16px 20px;gap:16px;flex-wrap:wrap;">';
+    html += '<div style="font-size:13px;color:#606060;">' + (canExport ? "พร้อมส่งออก — ไม่มี Error และ Warning ได้รับการยืนยันครบแล้ว" : "ปุ่มถัดไปจะกดได้เมื่อ Error เป็น 0 และ Warning ทุกข้อได้รับการยืนยัน") + '</div>';
+    html += '<div style="font-family:Roboto;font-size:13px;font-weight:600;">Error ' + counts.error + ' · Warning ' + counts.warning + ' · Auto-fix ' + built.reduce(function(n,r){return n+r.issues.filter(function(i){return i.kind==="autofix";}).length;},0) + ' จุด (' + fixedRowsCount + ' รายการ) · ผ่าน ' + counts.pass + '</div></div></div>';
+    return html;
+  },
+
+  confirmRow: function (id) {
+    var built = this.build();
+    var row = built.find(function (r) { return r.rec.id === id; });
+    if (!row) return;
+    var c = Object.assign({}, this.state.confirmed);
+    var edits = Object.assign({}, this.state.edits);
+    row.unconfirmed.forEach(function (w) { c[id + "|" + w.key] = true; if (w.fix) { edits[id] = Object.assign({}, edits[id] || {}); edits[id][w.fix.field] = w.fix.to; } });
+    this.set({ confirmed: c, edits: edits });
+  },
+
+  screenPreview: function (built) {
+    var s = this.state, self = this;
+    var tab = s.previewTab;
+    var head = { master: MASTER_HEADERS, bank: BANK_HEADERS, address: ADDRESS_HEADERS }[tab];
+    var valuesFor = function (row) { return tab === "master" ? self.masterValues(row) : tab === "bank" ? self.bankValues(row) : self.addressValues(row); };
+    var html = '<div style="display:flex;flex-direction:column;gap:20px;"><div><div style="font-size:22px;font-weight:700;">4. พรีวิวไฟล์ผลลัพธ์</div><div style="font-size:14px;color:#606060;margin-top:4px;">ค่าที่จะเขียนออกจริงตามฟอร์แมตคอลัมน์ SAP DTW (Master/Bank/Address)</div></div>';
+    html += '<div style="display:flex;gap:4px;border-bottom:1px solid #E5E5E5;">';
+    [["master","Master"],["bank","Bank"],["address","Address"]].forEach(function (t) {
+      var active = tab === t[0];
+      html += '<button style="height:40px;padding:0 20px;border:none;border-bottom:2px solid ' + (active ? "#0F0F0F" : "transparent") + ';background:transparent;font-size:14px;font-weight:' + (active?700:500) + ';color:' + (active ? "#0F0F0F" : "#606060") + ';" onclick="App.set({previewTab:\'' + t[0] + '\'})">' + t[1] + '</button>';
+    });
+    html += '</div><div style="background:#fff;border:1px solid #E5E5E5;border-radius:0 0 12px 12px;overflow:auto;max-height:70vh;font-family:Sarabun,sans-serif;"><table style="border-collapse:collapse;font-size:13px;"><thead><tr>';
+    head.forEach(function (c) { html += '<th style="background:#DCE6F1;border:1px solid #B7C6DA;padding:5px 10px;text-align:left;font-weight:700;white-space:nowrap;">' + esc(c) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    built.forEach(function (row, i) {
+      var vals = valuesFor(row);
+      html += '<tr>';
+      head.forEach(function (_, c) { html += '<td style="border:1px solid #D9D9D9;padding:5px 10px;white-space:nowrap;background:' + (i % 2 ? "#FAFBFC" : "#fff") + ';">' + esc(vals[c] == null ? "" : vals[c]) + '</td>'; });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+    return html;
+  },
+
+  screenExport: function (built, counts) {
+    var s = this.state;
+    var ve = built.filter(function (r) { return r.code.indexOf("VE") === 0; });
+    var vj = built.filter(function (r) { return r.code.indexOf("VJ") === 0; });
+    function range(rows) { return rows.length ? rows[0].code + " – " + rows[rows.length - 1].code : "—"; }
+    var html = '<div style="display:flex;flex-direction:column;gap:24px;max-width:760px;margin:0 auto;">';
+    html += '<div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;"><div style="width:56px;height:56px;border-radius:9999px;background:#E3F5E7;display:flex;align-items:center;justify-content:center;color:#1E7B34;font-size:26px;">✓</div><div style="font-size:22px;font-weight:700;">พร้อมส่งออก</div>';
+    html += '<div style="font-size:14px;color:#606060;">Error ' + counts.error + ' · Warning ' + counts.warning + ' · ผ่าน ' + counts.pass + '</div></div>';
+    html += '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;">';
+    html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:20px;text-align:center;"><div style="font-family:Roboto;font-size:28px;font-weight:700;color:#065FD4;">' + ve.length + '</div><div style="font-size:13px;color:#606060;margin-top:2px;">รายการ VE · ' + range(ve) + '</div></div>';
+    html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:20px;text-align:center;"><div style="font-family:Roboto;font-size:28px;font-weight:700;color:#065FD4;">' + vj.length + '</div><div style="font-size:13px;color:#606060;margin-top:2px;">รายการ VJ · ' + range(vj) + '</div></div></div>';
+    html += '<div style="background:#fff;border:1px solid #E5E5E5;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;"><div><div style="font-size:14px;font-weight:600;">VE ' + s.month + ' ' + s.year + '.xlsx</div><div style="font-size:12px;color:#606060;">สร้างไฟล์ใหม่ตามฟอร์แมตคอลัมน์ SAP DTW (Master/Bank/Address)</div></div><button style="height:40px;padding:0 20px;border-radius:9999px;background:#0F0F0F;color:#fff;border:none;font-size:14px;font-weight:500;white-space:nowrap;" onclick="App.exportVe(App.build())">ดาวน์โหลด</button></div>';
+    html += '<div style="height:1px;background:#E5E5E5;"></div><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;"><div><div style="font-size:14px;font-weight:600;">Unicode text แยกชีท (.txt)</div><div style="font-size:12px;color:#606060;">Master, Bank, Address · UTF-16LE คั่นด้วยแท็บ ไม่มีเครื่องหมาย "</div></div><button style="height:40px;padding:0 20px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:14px;font-weight:500;white-space:nowrap;" onclick="App.exportText(App.build())">ดาวน์โหลด 3 ไฟล์</button></div>';
+    html += '<div style="height:1px;background:#E5E5E5;"></div><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;"><div><div style="font-size:14px;font-weight:600;">Change Log — ' + s.month + ' ' + s.year + '</div><div style="font-size:12px;color:#606060;">บันทึกค่าที่ต่างจากไฟล์ Employee, Auto-fix และการยืนยัน Warning</div></div><button style="height:40px;padding:0 20px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:14px;font-weight:500;white-space:nowrap;" onclick="App.exportLog(App.build())">ดาวน์โหลด</button></div>';
+    html += '</div>';
+    if (s.exportMessage) html += '<div style="font-size:13px;color:#606060;text-align:center;">' + esc(s.exportMessage) + '</div>';
+    html += '</div>';
+    return html;
+  },
+
+  drawer: function (built) {
+    var sel = built.find(function (r) { return r.rec.id === App.state.selectedId; });
+    if (!sel) return "";
+    var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;justify-content:flex-end;" onclick="App.set({selectedId:null})"><div style="width:min(620px,94vw);height:100%;background:#fff;box-shadow:-8px 0 40px rgba(0,0,0,.2);padding:24px;overflow:auto;display:flex;flex-direction:column;gap:18px;" onclick="event.stopPropagation()">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;"><div><div style="font-size:18px;font-weight:700;">' + esc(sel.name) + '</div><div style="font-family:Roboto;font-size:12px;color:#606060;">' + sel.code + ' · ' + esc(sel.get("empCode")) + '</div></div><button style="width:32px;height:32px;border-radius:9999px;border:none;background:#F2F2F2;font-size:16px;" onclick="App.set({selectedId:null})">✕</button></div>';
+    if (sel.issues.length) {
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      sel.issues.forEach(function (i) {
+        var meta = App.statusMeta(i.kind === "info" ? "info" : i.kind);
+        var confirmed = App.state.confirmed[sel.rec.id + "|" + i.key];
+        html += '<div style="background:' + meta.bg + '22;border:1px solid ' + meta.bg + ';border-radius:10px;padding:12px;">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;"><div style="font-size:13px;font-weight:600;">' + esc(i.title) + '</div><span style="' + App.badgeStyle(confirmed ? "pass" : (i.kind === "info" ? "info" : i.kind)) + '">' + (confirmed ? "ยืนยันแล้ว" : meta.label) + '</span></div>';
+        html += '<div style="font-size:12px;color:#606060;margin-top:3px;">' + esc(i.detail) + '</div>';
+        if (i.kind === "warning" && !confirmed) html += '<button style="margin-top:8px;height:30px;padding:0 14px;border-radius:9999px;background:#065FD4;color:#fff;border:none;font-size:12px;font-weight:500;" onclick="App.confirmIssue(\'' + sel.rec.id + '\',\'' + i.key + '\'' + (i.fix ? ",'" + i.fix.field + "','" + esc(i.fix.to).replace(/'/g,"\\'") + "'" : "") + ')">' + (i.fix ? "ยืนยันใช้ค่า " + esc(i.fix.to) : "ยืนยันแล้ว") + '</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    var groups = [
+      { title: "บุคคล", fields: [["First Name (มีคำนำหน้า)","firstName"],["Last Name","lastName"],["TaxID","taxId"],["Mobile Phone","mobile"],["Date of Birth","dob"]] },
+      { title: "ธนาคาร", fields: [["Bank Account","account"],["Bank Branch","branch"],["รหัสสาขา (IBAN)","iban"],["AccountName","accountName"],["BIC/SWIFT","bic"]] },
+      { title: "ที่อยู่บ้าน", fields: [["บ้านเลขที่/หมู่","homeBuilding"],["ตำบล/แขวง","homeStreet"],["อำเภอ/เขต","homeBlock"],["จังหวัด","homeCity"],["รหัสไปรษณีย์","homeZip"]] },
+    ];
+    html += '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:12px;">';
+    groups.forEach(function (grp) {
+      html += '<div style="background:#F7F7F8;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px;"><div style="font-size:11px;font-weight:700;color:#606060;">' + grp.title + '</div>';
+      grp.fields.forEach(function (f) {
+        html += '<div style="display:flex;flex-direction:column;gap:3px;"><label style="font-size:11px;color:#606060;">' + f[0] + '</label><input style="height:32px;border:1px solid #E5E5E5;border-radius:6px;padding:0 8px;font-size:12px;width:100%;background:#fff;" value="' + esc(sel.get(f[1])) + '" onchange="App.setField(\'' + sel.rec.id + '\',\'' + f[1] + '\',this.value)"></div>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '<button style="height:40px;border-radius:9999px;background:#fff;border:1px solid #E5E5E5;color:#606060;font-size:14px;font-weight:500;" onclick="App.excludeRow(\'' + sel.rec.id + '\')">ตัดออกจากชุดนี้ (เลื่อนเลขรหัสถัดไปอัตโนมัติ)</button>';
+    html += '</div></div>';
+    return html;
+  },
+  confirmIssue: function (id, key, field, to) { if (field) this.setField(id, field, to); this.confirm(id, key); },
+  excludeRow: function (id) { var ex = Object.assign({}, this.state.excluded); ex[id] = true; this.set({ excluded: ex, selectedId: null }); },
+
+  historyModal: function () {
+    var s = this.state;
+    var kindLabel = { xlsx: "ไฟล์นำเข้า SAP (.xlsx)", txt: "Unicode text (.txt)", log: "Change Log (.xlsx)" };
+    var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:60;display:flex;align-items:center;justify-content:center;padding:24px;" onclick="App.set({historyOpen:false})"><div style="width:min(640px,94vw);max-height:80vh;overflow:auto;background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.2);padding:24px;display:flex;flex-direction:column;gap:16px;" onclick="event.stopPropagation()">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;"><div><div style="font-size:18px;font-weight:700;">ประวัติการทำไฟล์</div><div style="font-size:12px;color:#606060;">' + (s.scriptUrl ? "เก็บใน Google Sheet ที่เชื่อมต่อไว้" : "เก็บใน localStorage เครื่องนี้เท่านั้น — ตั้งค่า Google Sheet เพื่อใช้ร่วมกันหลายเครื่อง") + '</div></div><button style="width:32px;height:32px;border-radius:9999px;border:none;background:#F2F2F2;font-size:16px;" onclick="App.set({historyOpen:false})">✕</button></div>';
+    if (!s.history.length) html += '<div style="padding:32px;text-align:center;font-size:13px;color:#606060;">ยังไม่มีประวัติ — ไฟล์ที่สร้างจะถูกบันทึกไว้ที่นี่</div>';
+    s.history.forEach(function (run) {
+      var at = new Date(run.at);
+      html += '<div style="border:1px solid #E5E5E5;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;"><div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;"><div style="font-size:13px;font-weight:600;">' + (kindLabel[run.kind] || run.kind) + '</div><div style="font-size:12px;color:#606060;font-family:Roboto;">' + (isNaN(at) ? "" : at.toLocaleString("th-TH")) + '</div></div><div style="font-size:12px;color:#606060;">' + esc(run.note) + '</div><div style="display:flex;flex-direction:column;gap:6px;">';
+      (run.files || []).forEach(function (file, fi) {
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:#F7F7F8;border-radius:8px;padding:8px 12px;"><div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(file.filename) + '</div><button style="height:28px;padding:0 12px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:12px;font-weight:500;white-space:nowrap;" onclick="App.redownloadHistoryFile(\'' + run.id + '\',' + fi + ')">ดาวน์โหลด</button></div>';
+      });
+      html += '</div></div>';
+    });
+    if (s.history.length) html += '<button style="height:36px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;color:#606060;font-size:13px;" onclick="App.clearHistory()">ล้างประวัติ</button>';
+    html += '</div></div>';
+    return html;
+  },
+  redownloadHistoryFile: function (runId, fileIndex) {
+    var run = this.state.history.find(function (r) { return String(r.id) === String(runId); });
+    if (run && run.files[fileIndex]) this.redownload(run.files[fileIndex]);
+  },
+
+  settingsModal: function () {
+    var s = this.state;
+    var inp = "height:40px;border:1px solid #E5E5E5;border-radius:8px;padding:0 12px;font-size:13px;font-family:Roboto;";
+    var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:60;display:flex;align-items:center;justify-content:center;padding:24px;" onclick="App.set({settingsOpen:false})"><div style="width:min(560px,94vw);background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.2);padding:24px;display:flex;flex-direction:column;gap:14px;" onclick="event.stopPropagation()">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;"><div style="font-size:18px;font-weight:700;">ตั้งค่าการเชื่อมต่อฐานข้อมูล</div><button style="width:32px;height:32px;border-radius:9999px;border:none;background:#F2F2F2;font-size:16px;" onclick="App.set({settingsOpen:false})">✕</button></div>';
+    html += '<div style="font-size:13px;color:#606060;">ค่าทั้งสองได้จากการติดตั้ง Code.gs (ดูวิธีที่ส่วนหัวของไฟล์) ระบบจะจำไว้ในเบราว์เซอร์เครื่องนี้</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px;"><label style="font-size:12px;color:#606060;">Web app URL</label><input id="scriptUrlInput" type="text" placeholder="https://script.google.com/macros/s/xxxxx/exec" value="' + esc(s.scriptUrl) + '" style="' + inp + '"></div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px;"><label style="font-size:12px;color:#606060;">Access key</label><input id="accessKeyInput" type="password" placeholder="ได้จาก Execution log หลังรัน setup" value="' + esc(s.accessKey) + '" style="' + inp + '"></div>';
+    html += '<div style="display:flex;gap:10px;"><button style="height:40px;padding:0 18px;border-radius:9999px;border:1px solid #E5E5E5;background:#fff;font-size:13px;font-weight:500;white-space:nowrap;" onclick="App.testConnection()">ทดสอบการเชื่อมต่อ</button><button style="height:40px;padding:0 18px;border-radius:9999px;background:#0F0F0F;color:#fff;border:none;font-size:13px;font-weight:500;white-space:nowrap;" onclick="App.saveSettings(document.getElementById(\'scriptUrlInput\').value, document.getElementById(\'accessKeyInput\').value)">บันทึก</button></div>';
+    html += '</div></div>';
+    return html;
+  },
+
+  _wireUploads: function () {
+    var emp = document.getElementById("empInput");
+    if (emp) emp.addEventListener("change", function (e) { App.onEmployeeFile(e.target.files); });
+  },
+};
+
+App.render();
+App.initSystem();
+App.refreshHistory();
+</script>
+</body>
+</html>
