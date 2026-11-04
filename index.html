@@ -39,6 +39,8 @@ var FIELD_LABELS = {
 function fieldLabel(k) { return FIELD_LABELS[k] || k; }
 var MASTER_HEADERS = ["CardCode","U_NTT_OldCode","CardName","U_ISS_BpTaxTitle","U_ISS_BpTaxName1","U_ISS_BpTaxName2","CardType","GroupCode","FederalTaxID","Phone1","ShippingType","CompanyPrivate","PayTermsGrpCode","PriceListNum","PriceMode","DebitorAccount","DownPaymentClearAct","VatGroup","SubjectToWithholdingTax","TypeReport","U_NTT_Interface","EndorsableChecksFromBP"];
 var BANK_HEADERS = ["ParentKey","BankCode","Branch","Country","AccountNo","AccountName","IBAN","BICSwiftCode","ControlKey","MandateID","UserNo1","UserNo2","Street","Block","City","ZipCode"];
+var DTW_MAP = { FederalTaxID: "LicTradNum", ShippingType: "ShipType", CompanyPrivate: "CmpPrivate", PayTermsGrpCode: "GroupNum", PriceListNum: "ListNum", DebitorAccount: "DebPayAcct", DownPaymentClearAct: "DpmClear", VatGroup: "ECVatGroup", SubjectToWithholdingTax: "WTLiable", TypeReport: "TypWTReprt", EndorsableChecksFromBP: "EdrsFromBP", ParentKey: "CardCode", AccountNo: "Account", AccountName: "AcctName", BICSwiftCode: "SwiftNum", UserNo1: "UsrNumber1", UserNo2: "UsrNumber2", AddressType: "AdresType", AddressName: "Address" };
+function dtwRow(h) { return h.map(function (c) { return DTW_MAP[c] || c; }); }
 var ADDRESS_HEADERS = ["ParentKey","AddressType","AddressName","StreetNo","Street","Block","City","Country","ZipCode"];
 var ZIP_BY_PROVINCE = {
   "กรุงเทพมหานคร":["10"],"สมุทรปราการ":["10"],"นนทบุรี":["11"],"ปทุมธานี":["12"],"พระนครศรีอยุธยา":["13"],"อ่างทอง":["14"],
@@ -401,7 +403,7 @@ var App = {
       [["Master", MASTER_HEADERS, function (r) { return self.masterValues(r); }],
        ["Bank", BANK_HEADERS, function (r) { return self.bankValues(r); }],
        ["Address", ADDRESS_HEADERS, function (r) { return self.addressValues(r); }]].forEach(function (p) {
-        var ws = XLSX.utils.aoa_to_sheet([p[1]].concat(rows.map(p[2])));
+        var ws = XLSX.utils.aoa_to_sheet([p[1], dtwRow(p[1])].concat(rows.map(p[2])));
         ws["!cols"] = p[1].map(function (h) { return { wch: Math.max(10, h.length + 2) }; });
         XLSX.utils.book_append_sheet(wb, ws, p[0]);
       });
@@ -462,7 +464,7 @@ var App = {
     function strip(v) { return String(v === null || v === undefined ? "" : v).replace(/["\u201c\u201d]/g, "").replace(/[\t\r\n]+/g, " "); }
     var files = [];
     plans.forEach(function (plan) {
-      var lines = [plan.head.map(strip).join("\t")];
+      var lines = [plan.head.map(strip).join("\t"), dtwRow(plan.head).map(strip).join("\t")];
       rows.forEach(function (row) { var vals = plan.build(row); lines.push(plan.head.map(function (_, c) { return strip(vals[c]); }).join("\t")); });
       var filename = "VE " + self.state.month + " " + self.state.year + " - " + plan.key + ".txt";
       files.push({ filename: filename, b64: self.toB64(self.utf16le(lines.join("\r\n") + "\r\n")), mime: "text/plain;charset=utf-16le" });
