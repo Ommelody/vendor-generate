@@ -485,7 +485,8 @@ var App = {
   /* ---- ประวัติ: ใช้ Apps Script (Google Sheet) ถ้าตั้งค่า URL ไว้ ไม่งั้น fallback เป็น localStorage ---- */
   saveRun: function (kind, note, files) {
     var self = this;
-    var run = { id: Date.now() + "-" + Math.random().toString(36).slice(2, 7), at: new Date().toISOString(), kind: kind, note: note, files: files };
+    var run = { id: Date.now() + "-" + Math.random().toString(36).slice(2, 7), at: new Date().toISOString(), kind: kind, note: note, files: files, veMax: 0, vjMax: 0 };
+    this.build().forEach(function (r) { var m = /^(VE|VJ)(\d+)$/.exec(r.code); if (m) { var n = parseInt(m[2], 10); if (m[1] === "VE") run.veMax = Math.max(run.veMax, n); else run.vjMax = Math.max(run.vjMax, n); } });
     if (this.state.scriptUrl) {
       fetch(this.state.scriptUrl, { method: "POST", body: JSON.stringify({ action: "save", run: run, key: this.state.accessKey }) })
         .then(function (r) { return r.json(); })
